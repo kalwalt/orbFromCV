@@ -12,13 +12,12 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -Wall -Wextra")
 endif()
 
-# Define the source files created so far
-set(SOURCES
+# Core algorithm sources, shared by the CLI executable and the test suite
+set(LIB_SOURCES
     orb_core.cpp
     fast_detector.cpp
     image_utils.cpp
     orb.cpp
-    main.cpp
 )
 
 # Define the header files (useful to make them appear in IDEs)
@@ -31,8 +30,12 @@ set(HEADERS
     stb_image.h
 )
 
-# Create the main executable
-add_executable(orb_test ${SOURCES} ${HEADERS})
+add_library(orb_lib STATIC ${LIB_SOURCES} ${HEADERS})
+target_include_directories(orb_lib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
-# Specify the include directories
-target_include_directories(orb_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+# Create the main executable
+add_executable(orb_test main.cpp)
+target_link_libraries(orb_test PRIVATE orb_lib)
+
+enable_testing()
+add_subdirectory(tests)
