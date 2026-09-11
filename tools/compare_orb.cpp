@@ -64,7 +64,24 @@ struct ComparisonReport {
     double medianHamming = 0.0;
     double maxHamming = 0.0;
     double meanAngleDiffDeg = 0.0;
+    // Breakdown by whether the matched pair shares the same pyramid octave:
+    // orientation is computed on that octave's own (differently-scaled) image,
+    // so an octave disagreement is expected to inflate the angle difference
+    // even when both implementations found "the same" corner spatially.
+    size_t octaveAgreeCount = 0;
+    double meanAngleDiffOctaveAgreeDeg = 0.0;
+    double meanAngleDiffOctaveDisagreeDeg = 0.0;
+    double meanHammingOctaveAgree = 0.0;
+    double meanHammingOctaveDisagree = 0.0;
 };
+
+// Smallest angular distance between two angles in degrees, in [0, 180].
+// A plain |a - b| is wrong near the 0/360 wraparound (e.g. 359 vs 9 is 10
+// degrees apart, not 350).
+double circularAngleDiffDeg(float a, float b) {
+    double diff = std::fabs(static_cast<double>(a) - static_cast<double>(b));
+    return diff > 180.0 ? 360.0 - diff : diff;
+}
 
 // Times `fn` once (discarded, warm-up) then `repeats` more times, returning
 // {mean, stddev} in milliseconds.
@@ -163,7 +180,11 @@ ComparisonReport compareImplementations(const ImplementationResult& a, const Imp
     report.countB = b.keypoints.size();
 
     std::vector<double> hammingDistances;
+    std::vector<double> hammingOctaveAgree;
+    std::vector<double> hammingOctaveDisagree;
     std::vector<double> angleDiffs;
+    std::vector<double> angleDiffsOctaveAgree;
+    std::vector<double> angleDiffsOctaveDisagree;
 
     for (size_t i = 0; i < a.keypoints.size(); ++i) {
         const auto& kpA = a.keypoints[i];
@@ -182,9 +203,21 @@ ComparisonReport compareImplementations(const ImplementationResult& a, const Imp
         }
 
         if (bestJ >= 0) {
+            const auto& kpB = b.keypoints[static_cast<size_t>(bestJ)];
             ++report.spatialMatches;
-            hammingDistances.push_back(hammingDistance(a.descriptors[i], b.descriptors[static_cast<size_t>(bestJ)]));
-            angleDiffs.push_back(std::fabs(kpA.angle - b.keypoints[static_cast<size_t>(bestJ)].angle));
+            double hamming = hammingDistance(a.descriptors[i], b.descriptors[static_cast<size_t>(bestJ)]);
+            hammingDistances.push_back(hamming);
+
+            double angleDiff = circularAngleDiffDeg(kpA.angle, kpB.angle);
+            angleDiffs.push_back(angleDiff);
+            if (kpA.octave == kpB.octave) {
+                ++report.octaveAgreeCount;
+                angleDiffsOctaveAgree.push_back(angleDiff);
+                hammingOctaveAgree.push_back(hamming);
+            } else {
+                angleDiffsOctaveDisagree.push_back(angleDiff);
+                hammingOctaveDisagree.push_back(hamming);
+            }
         }
     }
 
@@ -196,6 +229,25 @@ ComparisonReport compareImplementations(const ImplementationResult& a, const Imp
         report.medianHamming = sorted[sorted.size() / 2];
         report.maxHamming = *std::max_element(hammingDistances.begin(), hammingDistances.end());
         report.meanAngleDiffDeg = std::accumulate(angleDiffs.begin(), angleDiffs.end(), 0.0) / angleDiffs.size();
+    }
+    if (!angleDiffsOctaveAgree.empty()) {
+        report.meanAngleDiffOctaveAgreeDeg =
+            std::accumulate(angleDiffsOctaveAgree.begin(), angleDiffsOctaveAgree.end(), 0.0) /
+            angleDiffsOctaveAgree.size();
+    }
+    if (!angleDiffsOctaveDisagree.empty()) {
+        report.meanAngleDiffOctaveDisagreeDeg =
+            std::accumulate(angleDiffsOctaveDisagree.begin(), angleDiffsOctaveDisagree.end(), 0.0) /
+            angleDiffsOctaveDisagree.size();
+    }
+    if (!hammingOctaveAgree.empty()) {
+        report.meanHammingOctaveAgree =
+            std::accumulate(hammingOctaveAgree.begin(), hammingOctaveAgree.end(), 0.0) / hammingOctaveAgree.size();
+    }
+    if (!hammingOctaveDisagree.empty()) {
+        report.meanHammingOctaveDisagree = std::accumulate(hammingOctaveDisagree.begin(),
+                                                             hammingOctaveDisagree.end(), 0.0) /
+                                            hammingOctaveDisagree.size();
     }
 
     return report;
@@ -254,7 +306,13 @@ int main(int argc, char** argv) {
     std::cout << "Descriptor Hamming distance (matched pairs, out of 256 bits): mean "
               << report.meanHamming << ", median " << report.medianHamming << ", max "
               << report.maxHamming << "\n";
-    std::cout << "Angle difference (matched pairs): mean " << report.meanAngleDiffDeg << " deg\n";
+    std::cout << "Angle difference (matched pairs, circular): mean " << report.meanAngleDiffDeg << " deg\n";
+    std::cout << "  same octave (" << report.octaveAgreeCount << "/" << report.spatialMatches
+              << "): mean angle diff " << report.meanAngleDiffOctaveAgreeDeg << " deg, mean Hamming "
+              << report.meanHammingOctaveAgree << "\n";
+    std::cout << "  different octave (" << (report.spatialMatches - report.octaveAgreeCount) << "/"
+              << report.spatialMatches << "): mean angle diff " << report.meanAngleDiffOctaveDisagreeDeg
+              << " deg, mean Hamming " << report.meanHammingOctaveDisagree << "\n";
 
     return 0;
 }
