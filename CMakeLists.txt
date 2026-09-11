@@ -39,3 +39,29 @@ target_link_libraries(orb_test PRIVATE orb_lib)
 
 enable_testing()
 add_subdirectory(tests)
+
+# Optional diagnostic tool comparing this repo's ORB against OpenCV's cv::ORB.
+# Off by default: orb_lib/orb_test/orb_tests never require OpenCV.
+# See docs/design/compare-orb-design.md.
+option(BUILD_OPENCV_COMPARISON "Build the compare_orb tool (requires OpenCV)" OFF)
+
+if(BUILD_OPENCV_COMPARISON)
+    find_package(OpenCV REQUIRED)
+    add_executable(compare_orb tools/compare_orb.cpp)
+    target_include_directories(compare_orb PRIVATE
+        ${OpenCV_INCLUDE_DIRS}
+        # Fallback for the official OpenCV Windows package: its per-toolset
+        # OpenCVConfig.cmake (under build/x64/vcXX/lib) bakes in absolute
+        # include paths from the OpenCV build machine, which don't exist
+        # locally. The real headers live at the standard build/include path.
+        "${OpenCV_DIR}/../../../include"
+    )
+    # Prefer the single "world" target when the OpenCV package only ships
+    # that (its OpenCV_LIBS can otherwise list per-module libs that don't
+    # exist in a world-only build).
+    if(TARGET opencv_world)
+        target_link_libraries(compare_orb PRIVATE orb_lib opencv_world)
+    else()
+        target_link_libraries(compare_orb PRIVATE orb_lib ${OpenCV_LIBS})
+    endif()
+endif()
