@@ -61,6 +61,36 @@ TEST_CASE("ORB::detectAndCompute: dot grid yields keypoints with matching descri
     }
 }
 
+TEST_CASE("ORB::detectAndCompute: descriptors are not degenerate (all-zero)") {
+    // Regression test: an aliased-call bug in gaussianBlur7x7 (fixed
+    // alongside this test - see image_utils.cpp) silently zeroed the
+    // pyramid image before descriptor sampling, producing an all-zero
+    // descriptor for every single keypoint. None of the other
+    // detectAndCompute tests inspect descriptor *content*, only shape, so
+    // this slipped through undetected until compared against OpenCV
+    // (issue #5).
+    Image8U image = makeDotGrid(128, 30, 220);
+
+    ORB orb(50, 1.2f, 1, 16, 0, 2, ORB::HARRIS_SCORE, 31, 20);
+    std::vector<KeyPoint> keypoints;
+    Image8U descriptors;
+
+    orb.detectAndCompute(image, keypoints, descriptors);
+
+    CHECK(!keypoints.empty());
+    for (int row = 0; row < descriptors.rows; ++row) {
+        bool allZero = true;
+        const uint8_t* desc = descriptors.ptr(row);
+        for (int col = 0; col < descriptors.cols; ++col) {
+            if (desc[col] != 0) {
+                allZero = false;
+                break;
+            }
+        }
+        CHECK(!allZero);
+    }
+}
+
 TEST_CASE("ORB::detectAndCompute: results are deterministic across runs") {
     Image8U image = makeDotGrid(128, 30, 220);
 

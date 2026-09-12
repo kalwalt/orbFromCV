@@ -137,3 +137,30 @@ TEST_CASE("gaussianBlur7x7: handles minimal-size image without crashing") {
     CHECK_EQ(dst.cols, 7);
     CHECK_EQ(dst.rows, 7);
 }
+
+TEST_CASE("gaussianBlur7x7: safe to call in-place (dst aliasing src)") {
+    // ORB::detectAndCompute calls gaussianBlur7x7(imagePyramid[level],
+    // imagePyramid[level]) - src and dst are the same object. An earlier
+    // version reassigned dst (= reset src's data to zero) before the
+    // horizontal pass had read from it, silently blurring garbage/zeros
+    // into every descriptor. Regression test for that bug.
+    Image8U separateResult;
+    {
+        Image8U src(15, 15);
+        for (auto& v : src.data) v = 0;
+        src.at(7, 7) = 255;
+        gaussianBlur7x7(src, separateResult);
+    }
+
+    Image8U aliased(15, 15);
+    for (auto& v : aliased.data) v = 0;
+    aliased.at(7, 7) = 255;
+    gaussianBlur7x7(aliased, aliased);
+
+    CHECK_EQ(aliased.data.size(), separateResult.data.size());
+    for (size_t i = 0; i < aliased.data.size(); ++i) {
+        CHECK_EQ(aliased.data[i], separateResult.data[i]);
+    }
+    // Would have failed before the fix: the aliased call zeroed everything.
+    CHECK(aliased.at(7, 7) > 0);
+}
