@@ -37,5 +37,10 @@ target_include_directories(orb_lib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 add_executable(orb_test main.cpp)
 target_link_libraries(orb_test PRIVATE orb_lib)
 
+# Per-stage timing diagnostic (pyramid, FAST, Harris, orientation,
+# descriptors, ...). No external deps, built by default like orb_test.
+add_executable(profile_orb tools/profile_orb.cpp)
+target_link_libraries(profile_orb PRIVATE orb_lib)
+
 enable_testing()
 add_subdirectory(tests)

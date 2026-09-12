@@ -111,3 +111,63 @@ TEST_CASE("ORB::detectAndCompute: multi-level pyramid runs without crashing") {
         CHECK(kp.octave >= 0 && kp.octave < 4);
     }
 }
+
+TEST_CASE("ORB::detectAndCompute: stage timings do not change keypoints or descriptors") {
+    Image8U image = makeDotGrid(128, 30, 220);
+
+    ORB orbA(50, 1.2f, 2, 16, 0, 2, ORB::HARRIS_SCORE, 31, 20);
+    std::vector<KeyPoint> keypointsA;
+    Image8U descriptorsA;
+    orbA.detectAndCompute(image, keypointsA, descriptorsA); // no profiling requested
+
+    ORB orbB(50, 1.2f, 2, 16, 0, 2, ORB::HARRIS_SCORE, 31, 20);
+    std::vector<KeyPoint> keypointsB;
+    Image8U descriptorsB;
+    std::vector<StageTiming> stageTimings;
+    orbB.detectAndCompute(image, keypointsB, descriptorsB, &stageTimings); // profiling requested
+
+    CHECK_EQ(keypointsA.size(), keypointsB.size());
+    CHECK_EQ(descriptorsA.data.size(), descriptorsB.data.size());
+    for (size_t i = 0; i < descriptorsA.data.size(); ++i) {
+        CHECK_EQ(descriptorsA.data[i], descriptorsB.data[i]);
+    }
+    for (size_t i = 0; i < keypointsA.size(); ++i) {
+        CHECK_EQ(keypointsA[i].pt.x, keypointsB[i].pt.x);
+        CHECK_EQ(keypointsA[i].pt.y, keypointsB[i].pt.y);
+        CHECK_EQ(keypointsA[i].angle, keypointsB[i].angle);
+    }
+}
+
+TEST_CASE("ORB::detectAndCompute: stage timings cover every pipeline stage with non-negative durations") {
+    Image8U image = makeDotGrid(128, 30, 220);
+
+    ORB orb(50, 1.2f, 2, 16, 0, 2, ORB::HARRIS_SCORE, 31, 20);
+    std::vector<KeyPoint> keypoints;
+    Image8U descriptors;
+    std::vector<StageTiming> stageTimings;
+
+    orb.detectAndCompute(image, keypoints, descriptors, &stageTimings);
+
+    CHECK(!keypoints.empty()); // otherwise only the first 3 stages would be recorded
+    const std::vector<std::string> expectedStages = {
+        "pyramid", "fast_detection", "harris_scoring", "orientation",
+        "pattern_init", "gaussian_blur", "descriptors", "finalize",
+    };
+    CHECK_EQ(stageTimings.size(), expectedStages.size());
+    for (size_t i = 0; i < stageTimings.size() && i < expectedStages.size(); ++i) {
+        CHECK_EQ(stageTimings[i].name, expectedStages[i]);
+        CHECK(stageTimings[i].ms >= 0.0);
+    }
+}
+
+TEST_CASE("ORB::detectAndCompute: stage timings on an empty image record nothing") {
+    Image8U image; // 0x0
+    ORB orb;
+    std::vector<KeyPoint> keypoints;
+    Image8U descriptors;
+    std::vector<StageTiming> stageTimings;
+
+    orb.detectAndCompute(image, keypoints, descriptors, &stageTimings);
+
+    CHECK(stageTimings.empty());
+}
