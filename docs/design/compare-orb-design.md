@@ -174,16 +174,32 @@ is needed — this is the concrete mechanism behind "extension, not rewrite."
 5. **Report** to stdout (plain text, no file output):
 
 ```
-Image: pinball.jpg (640x480)
+Image: pinball.jpg (1637x2048)
 Params: nfeatures=500 scaleFactor=1.2 nlevels=8 edgeThreshold=31 wta_k=2 patchSize=31 fastThreshold=20
 
-mine:   412 keypoints, mean 3.21 ms (stddev 0.18 ms, 10 runs)
-opencv: 398 keypoints, mean 1.05 ms (stddev 0.06 ms, 10 runs)
+mine:   500 keypoints, mean 864.07 ms (stddev 82.63 ms, 10 runs)
+opencv: 500 keypoints, mean 33.96 ms (stddev 4.90 ms, 10 runs)
 
-Spatial match (mine -> opencv, radius <= 3px): 351/412 (85.2%)
-Descriptor Hamming distance (matched pairs, out of 256 bits): mean 14.2, median 12.0, max 63
-Angle difference (matched pairs): mean 2.1 deg
+Response distribution (mine):   mean 1.234e-04, median 1.100e-04, min 2.000e-06, max 5.678e-04
+Response distribution (opencv): mean 2.345e-03, median 2.100e-03, min 1.000e-05, max 9.876e-03
+
+Spatial match (mine -> opencv, radius <= 3px): 309/500 (61.80%)
+Descriptor Hamming distance (matched pairs, out of 256 bits): mean 122.15, median 121.00, max 179.00
+Angle difference (matched pairs, circular): mean 12.89 deg
+  same octave (125/309): mean angle diff 4.54 deg, mean Hamming 120.37
+  different octave (184/309): mean angle diff 18.56 deg, mean Hamming 123.35
 ```
+
+Response is scored on a different scale by each implementation (Harris
+response includes a normalization constant that isn't necessarily identical
+between the two), so it's reported as a per-implementation distribution
+(mean/median/min/max) rather than a paired difference like angle — matching
+how the originating issue names it ("orientation/response distribution").
+
+The octave-agree/disagree breakdown (added after the initial implementation,
+while investigating a reported angle discrepancy — see PR history) splits
+angle and Hamming stats by whether the matched pair shares the same pyramid
+octave, since orientation is computed on that octave's own resized image.
 
 ## Error handling
 
