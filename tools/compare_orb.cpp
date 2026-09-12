@@ -73,6 +73,38 @@ struct ComparisonReport {
     double meanAngleDiffOctaveDisagreeDeg = 0.0;
     double meanHammingOctaveAgree = 0.0;
     double meanHammingOctaveDisagree = 0.0;
+
+    // Cumulative breakdown by spatial match distance ("<= X px"), to test
+    // whether descriptor disagreement is explained by ordinary keypoint
+    // localization jitter (Hamming should improve sharply as tolerance
+    // tightens toward 0px) rather than a discrete bug (which would keep
+    // Hamming near-random even for exact-pixel matches). See issue #5.
+    struct DistanceBucket {
+        float maxDistPx;
+        size_t count = 0;
+        double meanHamming = 0.0;
+    };
+    // 0.5px stands in for "exact" since keypoint coordinates are floats
+    // (post-rescale by a per-octave factor) - a literal 0.0f equality check
+    // would rarely fire outside octave 0.
+    std::vector<DistanceBucket> distanceBuckets = {{0.5f}, {1.0f}, {2.0f}, {3.0f}};
+
+    // Octave 0 is the raw, un-resized base image for both implementations
+    // (imagePyramid[0] == the input image, no pyramid resize involved) - an
+    // exact-pixel match restricted to octave 0 isolates whether the
+    // disagreement is a resize/pyramid-accumulation effect (would improve
+    // here) or something else entirely, e.g. blur/rotation/rounding (would
+    // still be near-random here too).
+    size_t octave0ExactCount = 0;
+    double meanHammingOctave0Exact = 0.0;
+
+    // Same as octave0Exact, further restricted to tight (<=1deg) orientation
+    // agreement - tests BRIEF's known sensitivity to rotation error: at this
+    // patch's ~15px sampling radius, a modest angle error already causes a
+    // tangential sampling-point displacement of a full pixel or more
+    // (radius * sin(angleErrorDeg)), which can flip many bit comparisons.
+    size_t octave0ExactTightAngleCount = 0;
+    double meanHammingOctave0ExactTightAngle = 0.0;
 };
 
 // Smallest angular distance between two angles in degrees, in [0, 180].
@@ -212,6 +244,9 @@ ComparisonReport compareImplementations(const ImplementationResult& a, const Imp
     std::vector<double> angleDiffs;
     std::vector<double> angleDiffsOctaveAgree;
     std::vector<double> angleDiffsOctaveDisagree;
+    std::vector<double> bucketHammingSums(report.distanceBuckets.size(), 0.0);
+    double octave0ExactHammingSum = 0.0;
+    double octave0ExactTightAngleHammingSum = 0.0;
 
     for (size_t i = 0; i < a.keypoints.size(); ++i) {
         const auto& kpA = a.keypoints[i];
@@ -235,7 +270,26 @@ ComparisonReport compareImplementations(const ImplementationResult& a, const Imp
             double hamming = hammingDistance(a.descriptors[i], b.descriptors[static_cast<size_t>(bestJ)]);
             hammingDistances.push_back(hamming);
 
+            // Cumulative: a match at bestDist also counts toward every wider bucket.
+            for (size_t k = 0; k < report.distanceBuckets.size(); ++k) {
+                if (bestDist <= report.distanceBuckets[k].maxDistPx) {
+                    ++report.distanceBuckets[k].count;
+                    bucketHammingSums[k] += hamming;
+                }
+            }
+
             double angleDiff = circularAngleDiffDeg(kpA.angle, kpB.angle);
+
+            if (bestDist <= 0.5f && kpA.octave == 0 && kpB.octave == 0) {
+                ++report.octave0ExactCount;
+                octave0ExactHammingSum += hamming;
+
+                if (angleDiff <= 1.0) {
+                    ++report.octave0ExactTightAngleCount;
+                    octave0ExactTightAngleHammingSum += hamming;
+                }
+            }
+
             angleDiffs.push_back(angleDiff);
             if (kpA.octave == kpB.octave) {
                 ++report.octaveAgreeCount;
@@ -275,6 +329,18 @@ ComparisonReport compareImplementations(const ImplementationResult& a, const Imp
         report.meanHammingOctaveDisagree = std::accumulate(hammingOctaveDisagree.begin(),
                                                              hammingOctaveDisagree.end(), 0.0) /
                                             hammingOctaveDisagree.size();
+    }
+    for (size_t k = 0; k < report.distanceBuckets.size(); ++k) {
+        if (report.distanceBuckets[k].count > 0) {
+            report.distanceBuckets[k].meanHamming = bucketHammingSums[k] / report.distanceBuckets[k].count;
+        }
+    }
+    if (report.octave0ExactCount > 0) {
+        report.meanHammingOctave0Exact = octave0ExactHammingSum / report.octave0ExactCount;
+    }
+    if (report.octave0ExactTightAngleCount > 0) {
+        report.meanHammingOctave0ExactTightAngle =
+            octave0ExactTightAngleHammingSum / report.octave0ExactTightAngleCount;
     }
 
     return report;
@@ -351,7 +417,18 @@ int main(int argc, char** argv) {
               << report.meanHammingOctaveAgree << "\n";
     std::cout << "  different octave (" << (report.spatialMatches - report.octaveAgreeCount) << "/"
               << report.spatialMatches << "): mean angle diff " << report.meanAngleDiffOctaveDisagreeDeg
-              << " deg, mean Hamming " << report.meanHammingOctaveDisagree << "\n";
+              << " deg, mean Hamming " << report.meanHammingOctaveDisagree << "\n\n";
+
+    std::cout << "Hamming distance by match tolerance (cumulative; tests whether disagreement is\n"
+                 "explained by ordinary keypoint-localization jitter rather than a discrete bug):\n";
+    for (const auto& bucket : report.distanceBuckets) {
+        std::cout << "  <= " << std::setprecision(1) << bucket.maxDistPx << "px: " << bucket.count
+                   << " matches, mean Hamming " << std::setprecision(2) << bucket.meanHamming << "\n";
+    }
+    std::cout << "  octave 0 only, <= 0.5px (no pyramid resize involved): " << report.octave0ExactCount
+              << " matches, mean Hamming " << report.meanHammingOctave0Exact << "\n";
+    std::cout << "  octave 0 only, <= 0.5px, AND <= 1deg angle diff: " << report.octave0ExactTightAngleCount
+              << " matches, mean Hamming " << report.meanHammingOctave0ExactTightAngle << "\n";
 
     return 0;
 }
