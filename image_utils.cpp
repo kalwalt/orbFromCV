@@ -1,5 +1,6 @@
 #include "image_utils.hpp"
 #include <algorithm>
+#include <utility>
 #include <vector>
 
 void resizeBilinear(const Image8U& src, Image8U& dst, int new_width, int new_height) {
@@ -44,12 +45,12 @@ void resizeBilinear(const Image8U& src, Image8U& dst, int new_width, int new_hei
 
 void gaussianBlur7x7(const Image8U& src, Image8U& dst) {
     if (src.cols == 0 || src.rows == 0) return;
-    
-    dst = Image8U(src.cols, src.rows);
-    Image8U temp(src.cols, src.rows); // Intermediate buffer
+
+    Image8U temp(src.cols, src.rows);   // horizontal-pass intermediate
+    Image8U result(src.cols, src.rows); // vertical-pass output
 
     // 1D Gaussian kernel for sigma = 2.0 (approx integer weights, sum = 256)
-    // Avoids floating point math entirely! 
+    // Avoids floating point math entirely!
     // weights = [18, 33, 49, 56, 49, 33, 18]
     const int kernel[7] = {18, 33, 49, 56, 49, 33, 18};
     const int kRadius = 3;
@@ -70,13 +71,13 @@ void gaussianBlur7x7(const Image8U& src, Image8U& dst) {
                 sum += src_row[px] * kernel[k + kRadius];
             }
             // Shift right by 8 is equivalent to division by 256
-            temp_row[x] = static_cast<uint8_t>(sum >> 8); 
+            temp_row[x] = static_cast<uint8_t>(sum >> 8);
         }
     }
 
     // Vertical pass
     for (int y = 0; y < src.rows; ++y) {
-        uint8_t* dst_row = dst.ptr(y);
+        uint8_t* result_row = result.ptr(y);
 
         for (int x = 0; x < src.cols; ++x) {
             int sum = 0;
@@ -88,7 +89,13 @@ void gaussianBlur7x7(const Image8U& src, Image8U& dst) {
 
                 sum += temp.at(py, x) * kernel[k + kRadius];
             }
-            dst_row[x] = static_cast<uint8_t>(sum >> 8);
+            result_row[x] = static_cast<uint8_t>(sum >> 8);
         }
     }
+
+    // Deferred until every read of `src` is done, so gaussianBlur7x7(x, x)
+    // (dst aliasing src - exactly how ORB::detectAndCompute calls this) is
+    // safe: reassigning dst any earlier would overwrite src's data out from
+    // under the horizontal pass before it could read it.
+    dst = std::move(result);
 }
