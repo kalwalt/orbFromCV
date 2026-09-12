@@ -83,6 +83,33 @@ double circularAngleDiffDeg(float a, float b) {
     return diff > 180.0 ? 360.0 - diff : diff;
 }
 
+// Summary of a response-score distribution across one implementation's full
+// keypoint set. Harris/FAST response is scored on a different scale between
+// the two implementations, so this is reported per-implementation rather
+// than as a paired difference (unlike angle/Hamming above).
+struct ResponseStats {
+    double mean = 0.0;
+    double median = 0.0;
+    double min = 0.0;
+    double max = 0.0;
+};
+
+ResponseStats computeResponseStats(const ImplementationResult& result) {
+    ResponseStats stats;
+    if (result.keypoints.empty()) return stats;
+
+    std::vector<double> responses;
+    responses.reserve(result.keypoints.size());
+    for (const auto& kp : result.keypoints) responses.push_back(kp.response);
+
+    stats.mean = std::accumulate(responses.begin(), responses.end(), 0.0) / responses.size();
+    std::sort(responses.begin(), responses.end());
+    stats.median = responses[responses.size() / 2];
+    stats.min = responses.front();
+    stats.max = responses.back();
+    return stats;
+}
+
 // Times `fn` once (discarded, warm-up) then `repeats` more times, returning
 // {mean, stddev} in milliseconds.
 template <typename Fn>
@@ -163,9 +190,9 @@ ImplementationResult runOpenCv(const cv::Mat& img, const OrbParams& p, int repea
     }
 
     result.descriptors.resize(keypoints.size());
-    for (int i = 0; i < descriptors.rows; ++i) {
-        const uint8_t* row = descriptors.ptr(i);
-        std::copy(row, row + 32, result.descriptors[static_cast<size_t>(i)].begin());
+    for (size_t i = 0; i < keypoints.size(); ++i) {
+        const uint8_t* row = descriptors.ptr(static_cast<int>(i));
+        std::copy(row, row + 32, result.descriptors[i].begin());
     }
 
     return result;
@@ -295,6 +322,18 @@ int main(int argc, char** argv) {
               << " ms (stddev " << mine.stddevMs << " ms, " << repeats << " runs)\n";
     std::cout << "opencv: " << opencv.keypoints.size() << " keypoints, mean " << opencv.meanMs
               << " ms (stddev " << opencv.stddevMs << " ms, " << repeats << " runs)\n\n";
+
+    // Response is scored on a different scale by each implementation, so it's
+    // reported as a per-implementation distribution rather than a paired diff.
+    ResponseStats mineResponse = computeResponseStats(mine);
+    ResponseStats opencvResponse = computeResponseStats(opencv);
+    std::cout << std::scientific << std::setprecision(3);
+    std::cout << "Response distribution (mine):   mean " << mineResponse.mean << ", median "
+              << mineResponse.median << ", min " << mineResponse.min << ", max " << mineResponse.max << "\n";
+    std::cout << "Response distribution (opencv): mean " << opencvResponse.mean << ", median "
+              << opencvResponse.median << ", min " << opencvResponse.min << ", max " << opencvResponse.max
+              << "\n\n";
+    std::cout << std::fixed << std::setprecision(2);
 
     ComparisonReport report = compareImplementations(mine, opencv);
     double matchPct = mine.keypoints.empty()
