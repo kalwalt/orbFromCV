@@ -1,3 +1,5 @@
+// Adapted from OpenCV's FAST feature detector (BSD-3-Clause, Willow Garage) -
+// see NOTICE at the repo root for full attribution.
 #ifndef FAST_DETECTOR_HPP
 #define FAST_DETECTOR_HPP
 
