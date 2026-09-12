@@ -1,3 +1,6 @@
+// The detectAndCompute pipeline structure follows OpenCV's
+// ORB_Impl::detectAndCompute (BSD-3-Clause, Willow Garage) - see NOTICE at
+// the repo root for full attribution.
 #ifndef ORB_HPP
 #define ORB_HPP
 

@@ -1,3 +1,6 @@
+// HarrisResponses, ICAngles, and computeOrbDescriptors are adapted from
+// OpenCV's modules/features2d/src/orb.cpp (BSD-3-Clause, Willow Garage) -
+// see NOTICE at the repo root for full attribution.
 #ifndef ORB_CORE_HPP
 #define ORB_CORE_HPP
 

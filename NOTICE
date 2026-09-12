@@ -1,0 +1,63 @@
+This project's own code is licensed under the GNU Lesser General Public
+License v3.0 (see LICENSE).
+
+Portions of this project are adapted from OpenCV
+(https://github.com/opencv/opencv), specifically the ORB implementation in
+modules/features2d/src/orb.cpp:
+
+  - orb_core.cpp / orb_core.hpp: HarrisResponses, ICAngles, and
+    computeOrbDescriptors are direct ports of the equivalent OpenCV
+    functions (adapted to this project's own Image8U/KeyPoint/Point2i
+    types in place of cv::Mat/cv::KeyPoint/cv::Point).
+  - fast_detector.cpp / fast_detector.hpp: FAST-9 corner detection,
+    adapted from OpenCV's FAST feature detector.
+  - orb_pattern.hpp: the 256-quad BRIEF sampling pattern (bit_pattern_31_)
+    is reproduced verbatim from OpenCV's table.
+  - orb.cpp / orb.hpp: the overall detectAndCompute pipeline structure
+    (pyramid construction, per-level feature budget, angle/descriptor
+    orchestration) follows OpenCV's ORB_Impl::detectAndCompute.
+
+That OpenCV source file carries the following license header:
+
+  Software License Agreement (BSD License)
+
+  Copyright (c) 2009, Willow Garage, Inc.
+  All rights reserved.
+
+  Redistribution and use in source and binary forms, with or without
+  modification, are permitted provided that the following conditions
+  are met:
+
+   * Redistributions of source code must retain the above copyright
+     notice, this list of conditions and the following disclaimer.
+   * Redistributions in binary form must reproduce the above
+     copyright notice, this list of conditions and the following
+     disclaimer in the documentation and/or other materials provided
+     with the distribution.
+   * Neither the name of the Willow Garage nor the names of its
+     contributors may be used to endorse or promote products derived
+     from this software without specific prior written permission.
+
+  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+  "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+  LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
+  FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
+  COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
+  INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+  BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+  LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+  CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+  LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN
+  ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+  POSSIBILITY OF SUCH DAMAGE.
+
+  Authors: Ethan Rublee, Vincent Rabaud, Gary Bradski
+
+The OpenCV project as a whole is separately licensed under the Apache
+License, Version 2.0 (https://github.com/opencv/opencv/blob/4.x/LICENSE)
+as of version 4.5.0; the specific file this code derives from retains
+the BSD-3-Clause header above.
+
+stb_image.h is a separate third-party single-header library (public
+domain / MIT, at the author's option) - see the license block at the
+top of that file.
