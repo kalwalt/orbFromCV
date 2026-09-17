@@ -70,7 +70,7 @@ cmake --build build --target profile_orb
 ./build/profile_orb <path_to_image> [repeats]
 ```
 
-On a real photo, FAST detection's non-maximal suppression currently dominates runtime — see [issue #7](https://github.com/kalwalt/orbFromCV/issues/7).
+On a real photo, Gaussian blur and FAST detection are currently the two largest stages. FAST's non-maximal suppression used to dominate (an O(n²) all-pairs scan) until it was replaced with a grid-based lookup — see [issue #7](https://github.com/kalwalt/orbFromCV/issues/7).
 
 ### `compare_orb` — validation against OpenCV's `cv::ORB`
 
@@ -116,7 +116,7 @@ Beyond the unit test suite, this implementation has been validated end-to-end ag
 - Validated against OpenCV's `cv::ORB` for keypoint/orientation/descriptor agreement.
 
 **Known limitations / open work:**
-- **Performance**: this is currently a single-threaded, scalar (non-SIMD) implementation, and noticeably slower than OpenCV's SIMD/IPP/multi-threaded build as a result — see [issue #7](https://github.com/kalwalt/orbFromCV/issues/7), where FAST's non-maximal suppression (an O(n²) all-pairs comparison) is identified as the current dominant bottleneck. A SIMD variant is planned.
+- **Performance**: this is currently a single-threaded, scalar (non-SIMD) implementation, and noticeably slower than OpenCV's SIMD/IPP/multi-threaded build as a result. The O(n²) FAST non-maximal suppression from [issue #7](https://github.com/kalwalt/orbFromCV/issues/7) has been fixed; the remaining time is spread across Gaussian blur, FAST detection and pyramid construction. A SIMD variant is planned.
 - **Not bit-identical to OpenCV**: this is an explicit non-goal (see [issue #3](https://github.com/kalwalt/orbFromCV/issues/3)) — the resize/blur implementations are close approximations, not exact ports, so small numerical differences from OpenCV are expected.
 
 Track ongoing work via the [issue tracker](https://github.com/kalwalt/orbFromCV/issues).
