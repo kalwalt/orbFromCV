@@ -1,6 +1,115 @@
 #include "fast_detector.hpp"
 #include "test_framework.hpp"
 
+#include <algorithm>
+#include <chrono>
+#include <cstdlib>
+
+namespace {
+
+// Reference 3x3 non-maximal suppression: a point survives unless some other
+// point within the 3x3 window has a strictly greater response (ties kept).
+std::vector<KeyPoint> bruteForceNms(const std::vector<KeyPoint>& raw) {
+    std::vector<KeyPoint> kept;
+    for (size_t i = 0; i < raw.size(); ++i) {
+        bool isMax = true;
+        for (size_t j = 0; j < raw.size() && isMax; ++j) {
+            if (i == j) continue;
+            if (std::abs(raw[i].pt.x - raw[j].pt.x) <= 1.0f &&
+                std::abs(raw[i].pt.y - raw[j].pt.y) <= 1.0f &&
+                raw[j].response > raw[i].response) {
+                isMax = false;
+            }
+        }
+        if (isMax) kept.push_back(raw[i]);
+    }
+    return kept;
+}
+
+bool sameKeypointSet(std::vector<KeyPoint> a, std::vector<KeyPoint> b) {
+    auto byPos = [](const KeyPoint& l, const KeyPoint& r) {
+        return l.pt.y != r.pt.y ? l.pt.y < r.pt.y : l.pt.x < r.pt.x;
+    };
+    std::sort(a.begin(), a.end(), byPos);
+    std::sort(b.begin(), b.end(), byPos);
+    if (a.size() != b.size()) return false;
+    for (size_t i = 0; i < a.size(); ++i) {
+        if (a[i].pt.x != b[i].pt.x || a[i].pt.y != b[i].pt.y ||
+            a[i].response != b[i].response) return false;
+    }
+    return true;
+}
+
+// Dense grid of isolated bright dots: every dot is a corner, so the raw
+// corner count scales with the image area.
+Image8U denseDotImage(int size) {
+    Image8U img(size, size);
+    for (auto& v : img.data) v = 50;
+    for (int y = 4; y < size - 4; y += 4)
+        for (int x = 4; x < size - 4; x += 4)
+            img.at(y, x) = 220;
+    return img;
+}
+
+double nmsMillis(const Image8U& img) {
+    std::vector<KeyPoint> kpts;
+    double best = 1e300;
+    for (int rep = 0; rep < 3; ++rep) {
+        auto t0 = std::chrono::steady_clock::now();
+        detectFAST(img, kpts, 20, true);
+        auto t1 = std::chrono::steady_clock::now();
+        best = std::min(best, std::chrono::duration<double, std::milli>(t1 - t0).count());
+    }
+    return best;
+}
+
+} // namespace
+
+TEST_CASE("detectFAST: NMS matches a brute-force 3x3 reference, including ties") {
+    Image8U img(64, 64);
+    for (auto& v : img.data) v = 50;
+    // Isolated dots, uneven blobs and mirror-symmetric pairs (equal responses).
+    img.at(10, 10) = 220;
+    img.at(20, 20) = 220; img.at(20, 21) = 210; img.at(21, 20) = 200; img.at(21, 21) = 190;
+    img.at(30, 30) = 220; img.at(30, 31) = 220;
+    img.at(40, 40) = 220; img.at(41, 40) = 220;
+    img.at(50, 10) = 220; img.at(50, 11) = 220; img.at(50, 12) = 220;
+    img.at(10, 50) = 200; img.at(11, 51) = 200;
+
+    std::vector<KeyPoint> raw, suppressed;
+    detectFAST(img, raw, 20, false);
+    detectFAST(img, suppressed, 20, true);
+
+    CHECK(raw.size() > 6);
+    CHECK(sameKeypointSet(suppressed, bruteForceNms(raw)));
+
+    // Make sure the tie path is really exercised: some neighbouring raw
+    // corners must share a response and both survive.
+    int tiedSurvivors = 0;
+    for (size_t i = 0; i < suppressed.size(); ++i)
+        for (size_t j = i + 1; j < suppressed.size(); ++j)
+            if (std::abs(suppressed[i].pt.x - suppressed[j].pt.x) <= 1.0f &&
+                std::abs(suppressed[i].pt.y - suppressed[j].pt.y) <= 1.0f)
+                ++tiedSurvivors;
+    CHECK(tiedSurvivors > 0);
+}
+
+TEST_CASE("detectFAST: NMS cost scales linearly with the number of corners") {
+    Image8U small = denseDotImage(256);
+    Image8U large = denseDotImage(512); // ~4x the corners
+
+    std::vector<KeyPoint> check;
+    detectFAST(large, check, 20, false);
+    CHECK(check.size() > 10000);
+
+    double smallMs = nmsMillis(small);
+    double largeMs = nmsMillis(large);
+
+    // Linear: ratio ~4. Quadratic all-pairs NMS: ratio ~16. Generous bound
+    // so slow CI machines and timer noise don't matter, only the growth rate.
+    CHECK(largeMs < 8.0 * std::max(smallMs, 0.5));
+}
+
 TEST_CASE("detectFAST: flat image yields no keypoints") {
     Image8U img(20, 20);
     for (auto& v : img.data) v = 100;
