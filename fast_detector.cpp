@@ -41,6 +41,11 @@ void detectFAST(const Image8U& img, std::vector<KeyPoint>& keypoints, int thresh
 
     std::vector<KeyPoint> raw_keypoints;
 
+    // Per-pixel corner response, 0 where there is no corner. Responses are
+    // sums of non-negative terms, so 0 can never outrank a real corner.
+    std::vector<float> response_grid;
+    if (nonmaxSuppression) response_grid.assign(static_cast<size_t>(img.rows) * img.step, 0.0f);
+
     // Iterate over the image, skipping the borders
     // This row-by-row structure is ideal for future WASM SIMD (v128) optimizations
     for (int y = margin; y < img.rows - margin; ++y) {
@@ -99,35 +104,26 @@ void detectFAST(const Image8U& img, std::vector<KeyPoint>& keypoints, int thresh
                 kp.response = cornerScore(img, x, y, offsets, threshold);
                 kp.octave = 0;
                 raw_keypoints.push_back(kp);
+                if (nonmaxSuppression) response_grid[static_cast<size_t>(y) * img.step + x] = kp.response;
             }
         }
     }
 
     // Non-Maximal Suppression (NMS)
-    // Retains only the best corners in a 3x3 neighborhood
-    if (nonmaxSuppression && !raw_keypoints.empty()) {
-        for (size_t i = 0; i < raw_keypoints.size(); ++i) {
-            const KeyPoint& kp1 = raw_keypoints[i];
+    // Keeps a corner unless a neighbour in its 3x3 window has a strictly
+    // greater response (ties survive). Corners lie inside the margin, so the
+    // 3x3 window never leaves the grid.
+    if (nonmaxSuppression) {
+        keypoints.reserve(raw_keypoints.size());
+        for (const KeyPoint& kp : raw_keypoints) {
+            const int x = static_cast<int>(kp.pt.x);
+            const int y = static_cast<int>(kp.pt.y);
             bool is_max = true;
-            
-            for (size_t j = 0; j < raw_keypoints.size(); ++j) {
-                if (i == j) continue;
-                
-                const KeyPoint& kp2 = raw_keypoints[j];
-                float dx = std::abs(kp1.pt.x - kp2.pt.x);
-                float dy = std::abs(kp1.pt.y - kp2.pt.y);
-                
-                // If within a 3x3 window
-                if (dx <= 1.0f && dy <= 1.0f) {
-                    if (kp2.response > kp1.response) {
-                        is_max = false;
-                        break;
-                    }
-                }
+            for (int dy = -1; dy <= 1 && is_max; ++dy) {
+                const float* row = response_grid.data() + static_cast<size_t>(y + dy) * img.step + x;
+                if (row[-1] > kp.response || row[0] > kp.response || row[1] > kp.response) is_max = false;
             }
-            if (is_max) {
-                keypoints.push_back(kp1);
-            }
+            if (is_max) keypoints.push_back(kp);
         }
     } else {
         keypoints = raw_keypoints;
