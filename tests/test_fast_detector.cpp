@@ -3,7 +3,8 @@
 
 #include <algorithm>
 #include <chrono>
-#include <cstdlib>
+#include <cmath>
+#include <vector>
 
 namespace {
 
@@ -41,7 +42,8 @@ bool sameKeypointSet(std::vector<KeyPoint> a, std::vector<KeyPoint> b) {
 }
 
 // Dense grid of isolated bright dots: every dot is a corner, so the raw
-// corner count scales with the image area.
+// corner count scales with the image area. No dot has a 3x3 neighbour, which
+// is the worst case for an all-pairs NMS (no early exit).
 Image8U denseDotImage(int size) {
     Image8U img(size, size);
     for (auto& v : img.data) v = 50;
@@ -51,16 +53,12 @@ Image8U denseDotImage(int size) {
     return img;
 }
 
-double nmsMillis(const Image8U& img) {
+double detectMillis(const Image8U& img) {
     std::vector<KeyPoint> kpts;
-    double best = 1e300;
-    for (int rep = 0; rep < 3; ++rep) {
-        auto t0 = std::chrono::steady_clock::now();
-        detectFAST(img, kpts, 20, true);
-        auto t1 = std::chrono::steady_clock::now();
-        best = std::min(best, std::chrono::duration<double, std::milli>(t1 - t0).count());
-    }
-    return best;
+    auto t0 = std::chrono::steady_clock::now();
+    detectFAST(img, kpts, 20, true);
+    auto t1 = std::chrono::steady_clock::now();
+    return std::chrono::duration<double, std::milli>(t1 - t0).count();
 }
 
 } // namespace
@@ -94,7 +92,7 @@ TEST_CASE("detectFAST: NMS matches a brute-force 3x3 reference, including ties")
     CHECK(tiedSurvivors > 0);
 }
 
-TEST_CASE("detectFAST: NMS cost scales linearly with the number of corners") {
+TEST_CASE("detectFAST with NMS scales ~linearly with image area, not quadratically") {
     Image8U small = denseDotImage(256);
     Image8U large = denseDotImage(512); // ~4x the corners
 
@@ -102,12 +100,18 @@ TEST_CASE("detectFAST: NMS cost scales linearly with the number of corners") {
     detectFAST(large, check, 20, false);
     CHECK(check.size() > 10000);
 
-    double smallMs = nmsMillis(small);
-    double largeMs = nmsMillis(large);
+    // Interleave the samples so a transient CPU stall on a shared CI runner
+    // hits both sizes rather than inflating only one of them.
+    double smallMs = 1e300, largeMs = 1e300;
+    for (int rep = 0; rep < 5; ++rep) {
+        smallMs = std::min(smallMs, detectMillis(small));
+        largeMs = std::min(largeMs, detectMillis(large));
+    }
 
-    // Linear: ratio ~4. Quadratic all-pairs NMS: ratio ~16. Generous bound
-    // so slow CI machines and timer noise don't matter, only the growth rate.
-    CHECK(largeMs < 8.0 * std::max(smallMs, 0.5));
+    // Linear: ratio ~4. The old all-pairs NMS: ratio ~16 (Debug and Release
+    // alike, since the pair loop dwarfs the scan). 12x keeps a wide gap on
+    // both sides so only the growth rate matters, not machine speed.
+    CHECK(largeMs < 12.0 * std::max(smallMs, 0.5));
 }
 
 TEST_CASE("detectFAST: flat image yields no keypoints") {
