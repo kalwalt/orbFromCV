@@ -70,7 +70,7 @@ cmake --build build --target profile_orb
 ./build/profile_orb <path_to_image> [repeats]
 ```
 
-On a real photo, Gaussian blur and FAST detection are currently the two largest stages. FAST's non-maximal suppression used to dominate (an O(n²) all-pairs scan) until it was replaced with a grid-based lookup — see [issue #7](https://github.com/kalwalt/orbFromCV/issues/7).
+On a real photo, FAST detection is currently the largest stage, followed by Gaussian blur and pyramid construction. Two earlier hotspots have been fixed: the O(n²) non-maximal suppression in FAST ([issue #7](https://github.com/kalwalt/orbFromCV/issues/7)) and the column-strided Gaussian blur ([issue #13](https://github.com/kalwalt/orbFromCV/issues/13)).
 
 ### `compare_orb` — validation against OpenCV's `cv::ORB`
 
