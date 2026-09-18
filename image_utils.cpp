@@ -54,6 +54,7 @@ void gaussianBlur7x7(const Image8U& src, Image8U& dst) {
     // symmetric so each tap pair shares one multiply. Integer math only.
     const int kernel[7] = {18, 33, 49, 56, 49, 33, 18};
     const int kRadius = 3;
+    const int k0 = kernel[0], k1 = kernel[1], k2 = kernel[2], k3 = kernel[3];
 
     // BORDER_REFLECT_101: index -1 -> 1, n -> n-2.
     auto reflect = [](int i, int n) { return i < 0 ? -i : (i >= n ? 2 * n - i - 2 : i); };
@@ -73,8 +74,8 @@ void gaussianBlur7x7(const Image8U& src, Image8U& dst) {
         };
         for (int x = 0; x < leftEnd; ++x) borderPixel(x);
         for (int x = kRadius; x < cols - kRadius; ++x) {
-            int sum = 18 * (s[x - 3] + s[x + 3]) + 33 * (s[x - 2] + s[x + 2]) +
-                      49 * (s[x - 1] + s[x + 1]) + 56 * s[x];
+            int sum = k0 * (s[x - 3] + s[x + 3]) + k1 * (s[x - 2] + s[x + 2]) +
+                      k2 * (s[x - 1] + s[x + 1]) + k3 * s[x];
             t[x] = static_cast<uint8_t>(sum >> 8);
         }
         for (int x = rightStart; x < cols; ++x) borderPixel(x);
@@ -87,8 +88,8 @@ void gaussianBlur7x7(const Image8U& src, Image8U& dst) {
         for (int k = 0; k < 7; ++k) r[k] = temp.ptr(reflect(y + k - kRadius, rows));
         uint8_t* out = result.ptr(y);
         for (int x = 0; x < cols; ++x) {
-            int sum = 18 * (r[0][x] + r[6][x]) + 33 * (r[1][x] + r[5][x]) +
-                      49 * (r[2][x] + r[4][x]) + 56 * r[3][x];
+            int sum = k0 * (r[0][x] + r[6][x]) + k1 * (r[1][x] + r[5][x]) +
+                      k2 * (r[2][x] + r[4][x]) + k3 * r[3][x];
             out[x] = static_cast<uint8_t>(sum >> 8);
         }
     }
