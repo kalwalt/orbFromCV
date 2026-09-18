@@ -46,50 +46,50 @@ void resizeBilinear(const Image8U& src, Image8U& dst, int new_width, int new_hei
 void gaussianBlur7x7(const Image8U& src, Image8U& dst) {
     if (src.cols == 0 || src.rows == 0) return;
 
-    Image8U temp(src.cols, src.rows);   // horizontal-pass intermediate
-    Image8U result(src.cols, src.rows); // vertical-pass output
+    const int cols = src.cols, rows = src.rows;
+    Image8U temp(cols, rows);   // horizontal-pass intermediate
+    Image8U result(cols, rows); // vertical-pass output
 
-    // 1D Gaussian kernel for sigma = 2.0 (approx integer weights, sum = 256)
-    // Avoids floating point math entirely!
-    // weights = [18, 33, 49, 56, 49, 33, 18]
+    // 1D Gaussian kernel for sigma = 2.0 (approx integer weights, sum = 256),
+    // symmetric so each tap pair shares one multiply. Integer math only.
     const int kernel[7] = {18, 33, 49, 56, 49, 33, 18};
     const int kRadius = 3;
 
-    // Horizontal pass
-    for (int y = 0; y < src.rows; ++y) {
-        const uint8_t* src_row = src.ptr(y);
-        uint8_t* temp_row = temp.ptr(y);
+    // BORDER_REFLECT_101: index -1 -> 1, n -> n-2.
+    auto reflect = [](int i, int n) { return i < 0 ? -i : (i >= n ? 2 * n - i - 2 : i); };
 
-        for (int x = 0; x < src.cols; ++x) {
+    // Horizontal pass: reflection only on the two 3-pixel border strips, the
+    // interior runs branch-free on the symmetric kernel.
+    const int leftEnd = std::min(kRadius, cols);
+    const int rightStart = std::max(kRadius, cols - kRadius);
+    for (int y = 0; y < rows; ++y) {
+        const uint8_t* s = src.ptr(y);
+        uint8_t* t = temp.ptr(y);
+
+        auto borderPixel = [&](int x) {
             int sum = 0;
-            for (int k = -kRadius; k <= kRadius; ++k) {
-                // Border reflection (BORDER_REFLECT_101 equivalent)
-                int px = x + k;
-                if (px < 0) px = -px;
-                else if (px >= src.cols) px = 2 * src.cols - px - 2;
-
-                sum += src_row[px] * kernel[k + kRadius];
-            }
-            // Shift right by 8 is equivalent to division by 256
-            temp_row[x] = static_cast<uint8_t>(sum >> 8);
+            for (int k = -kRadius; k <= kRadius; ++k) sum += s[reflect(x + k, cols)] * kernel[k + kRadius];
+            t[x] = static_cast<uint8_t>(sum >> 8);
+        };
+        for (int x = 0; x < leftEnd; ++x) borderPixel(x);
+        for (int x = kRadius; x < cols - kRadius; ++x) {
+            int sum = 18 * (s[x - 3] + s[x + 3]) + 33 * (s[x - 2] + s[x + 2]) +
+                      49 * (s[x - 1] + s[x + 1]) + 56 * s[x];
+            t[x] = static_cast<uint8_t>(sum >> 8);
         }
+        for (int x = rightStart; x < cols; ++x) borderPixel(x);
     }
 
-    // Vertical pass
-    for (int y = 0; y < src.rows; ++y) {
-        uint8_t* result_row = result.ptr(y);
-
-        for (int x = 0; x < src.cols; ++x) {
-            int sum = 0;
-            for (int k = -kRadius; k <= kRadius; ++k) {
-                // Border reflection
-                int py = y + k;
-                if (py < 0) py = -py;
-                else if (py >= src.rows) py = 2 * src.rows - py - 2;
-
-                sum += temp.at(py, x) * kernel[k + kRadius];
-            }
-            result_row[x] = static_cast<uint8_t>(sum >> 8);
+    // Vertical pass as row accumulation: the seven source rows are resolved
+    // (with reflection) once per output row, then read contiguously.
+    for (int y = 0; y < rows; ++y) {
+        const uint8_t* r[7];
+        for (int k = 0; k < 7; ++k) r[k] = temp.ptr(reflect(y + k - kRadius, rows));
+        uint8_t* out = result.ptr(y);
+        for (int x = 0; x < cols; ++x) {
+            int sum = 18 * (r[0][x] + r[6][x]) + 33 * (r[1][x] + r[5][x]) +
+                      49 * (r[2][x] + r[4][x]) + 56 * r[3][x];
+            out[x] = static_cast<uint8_t>(sum >> 8);
         }
     }
 

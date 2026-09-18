@@ -138,6 +138,66 @@ TEST_CASE("gaussianBlur7x7: handles minimal-size image without crashing") {
     CHECK_EQ(dst.rows, 7);
 }
 
+namespace {
+
+int reflect101(int i, int n) {
+    if (i < 0) return -i;
+    if (i >= n) return 2 * n - i - 2;
+    return i;
+}
+
+// Straightforward separable 7-tap blur written from the kernel definition,
+// deliberately naive so it stays an independent oracle for the optimised
+// implementation.
+Image8U referenceBlur7x7(const Image8U& src) {
+    const int kernel[7] = {18, 33, 49, 56, 49, 33, 18};
+    Image8U temp(src.cols, src.rows), out(src.cols, src.rows);
+    for (int y = 0; y < src.rows; ++y)
+        for (int x = 0; x < src.cols; ++x) {
+            int sum = 0;
+            for (int k = -3; k <= 3; ++k) sum += src.at(y, reflect101(x + k, src.cols)) * kernel[k + 3];
+            temp.at(y, x) = static_cast<uint8_t>(sum >> 8);
+        }
+    for (int y = 0; y < src.rows; ++y)
+        for (int x = 0; x < src.cols; ++x) {
+            int sum = 0;
+            for (int k = -3; k <= 3; ++k) sum += temp.at(reflect101(y + k, src.rows), x) * kernel[k + 3];
+            out.at(y, x) = static_cast<uint8_t>(sum >> 8);
+        }
+    return out;
+}
+
+Image8U pseudoRandomImage(int cols, int rows, uint32_t seed) {
+    Image8U img(cols, rows);
+    for (auto& v : img.data) {
+        seed = seed * 1664525u + 1013904223u;
+        v = static_cast<uint8_t>(seed >> 24);
+    }
+    return img;
+}
+
+} // namespace
+
+TEST_CASE("gaussianBlur7x7: matches a naive reference byte-for-byte on noise") {
+    // Odd, non-multiple-of-anything sizes so every border strip and interior
+    // remainder path is exercised.
+    // REFLECT_101 needs at least 4 pixels per dimension; smaller images are
+    // out of contract for both the reference and the implementation.
+    const int sizes[][2] = {{41, 29}, {7, 7}, {8, 13}, {6, 20}, {20, 5}, {4, 4}};
+    for (const auto& s : sizes) {
+        Image8U src = pseudoRandomImage(s[0], s[1], 12345u + s[0] * 7 + s[1]);
+        Image8U expected = referenceBlur7x7(src);
+        Image8U actual;
+        gaussianBlur7x7(src, actual);
+        CHECK_EQ(actual.cols, expected.cols);
+        CHECK_EQ(actual.rows, expected.rows);
+        int mismatches = 0;
+        for (size_t i = 0; i < expected.data.size(); ++i)
+            if (actual.data[i] != expected.data[i]) ++mismatches;
+        CHECK_EQ(mismatches, 0);
+    }
+}
+
 TEST_CASE("gaussianBlur7x7: safe to call in-place (dst aliasing src)") {
     // ORB::detectAndCompute calls gaussianBlur7x7(imagePyramid[level],
     // imagePyramid[level]) - src and dst are the same object. An earlier
