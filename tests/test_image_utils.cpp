@@ -179,11 +179,11 @@ Image8U pseudoRandomImage(int cols, int rows, uint32_t seed) {
 } // namespace
 
 TEST_CASE("gaussianBlur7x7: matches a naive reference byte-for-byte on noise") {
-    // Odd, non-multiple-of-anything sizes so every border strip and interior
-    // remainder path is exercised.
+    // Mixed small sizes so the border strips, the interior and the
+    // "no interior at all" (cols <= 6) paths are all exercised.
     // REFLECT_101 needs at least 4 pixels per dimension; smaller images are
     // out of contract for both the reference and the implementation.
-    const int sizes[][2] = {{41, 29}, {7, 7}, {8, 13}, {6, 20}, {20, 5}, {4, 4}};
+    const int sizes[][2] = {{41, 29}, {7, 7}, {8, 13}, {6, 20}, {5, 9}, {20, 5}, {4, 4}};
     for (const auto& s : sizes) {
         Image8U src = pseudoRandomImage(s[0], s[1], 12345u + s[0] * 7 + s[1]);
         Image8U expected = referenceBlur7x7(src);
@@ -194,6 +194,8 @@ TEST_CASE("gaussianBlur7x7: matches a naive reference byte-for-byte on noise") {
         int mismatches = 0;
         for (size_t i = 0; i < expected.data.size(); ++i)
             if (actual.data[i] != expected.data[i]) ++mismatches;
+        if (mismatches)
+            std::cerr << "    " << s[0] << "x" << s[1] << ": " << mismatches << " pixels differ\n";
         CHECK_EQ(mismatches, 0);
     }
 }
