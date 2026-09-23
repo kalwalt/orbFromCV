@@ -56,8 +56,15 @@ void gaussianBlur7x7(const Image8U& src, Image8U& dst) {
     const int kRadius = 3;
     const int k0 = kernel[0], k1 = kernel[1], k2 = kernel[2], k3 = kernel[3];
 
-    // BORDER_REFLECT_101: index -1 -> 1, n -> n-2.
-    auto reflect = [](int i, int n) { return i < 0 ? -i : (i >= n ? 2 * n - i - 2 : i); };
+    // BORDER_REFLECT_101: index -1 -> 1, n -> n-2. Reflects repeatedly (as
+    // OpenCV's borderInterpolate does) so dimensions below 4 px stay in bounds;
+    // a 1-pixel dimension always maps to 0. Only border strips and per-row
+    // lookups call this, never the interior loop.
+    auto reflect = [](int i, int n) {
+        if (n == 1) return 0;
+        while (i < 0 || i >= n) i = i < 0 ? -i : 2 * n - i - 2;
+        return i;
+    };
 
     // Horizontal pass: reflection only on the two 3-pixel border strips, the
     // interior runs branch-free on the symmetric kernel.
