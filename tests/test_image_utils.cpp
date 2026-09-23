@@ -140,9 +140,13 @@ TEST_CASE("gaussianBlur7x7: handles minimal-size image without crashing") {
 
 namespace {
 
+// BORDER_REFLECT_101 as OpenCV's borderInterpolate defines it: reflect
+// repeatedly until the index lands inside [0, n), and a 1-pixel dimension
+// always maps to 0. For n >= 4 a single reflection is enough for the 7-tap
+// kernel; smaller dimensions need the repetition.
 int reflect101(int i, int n) {
-    if (i < 0) return -i;
-    if (i >= n) return 2 * n - i - 2;
+    if (n == 1) return 0;
+    while (i < 0 || i >= n) i = i < 0 ? -i : 2 * n - i - 2;
     return i;
 }
 
@@ -180,9 +184,8 @@ Image8U pseudoRandomImage(int cols, int rows, uint32_t seed) {
 
 TEST_CASE("gaussianBlur7x7: matches a naive reference byte-for-byte on noise") {
     // Mixed small sizes so the border strips, the interior and the
-    // "no interior at all" (cols <= 6) paths are all exercised.
-    // REFLECT_101 needs at least 4 pixels per dimension; smaller images are
-    // out of contract for both the reference and the implementation.
+    // "no interior at all" (cols <= 6) paths are all exercised. Dimensions
+    // below 4 px are covered by the dedicated test further down.
     const int sizes[][2] = {{41, 29}, {7, 7}, {8, 13}, {6, 20}, {5, 9}, {20, 5}, {4, 4}};
     for (const auto& s : sizes) {
         Image8U src = pseudoRandomImage(s[0], s[1], 12345u + s[0] * 7 + s[1]);
@@ -197,6 +200,48 @@ TEST_CASE("gaussianBlur7x7: matches a naive reference byte-for-byte on noise") {
         if (mismatches)
             std::cerr << "    " << s[0] << "x" << s[1] << ": " << mismatches << " pixels differ\n";
         CHECK_EQ(mismatches, 0);
+    }
+}
+
+TEST_CASE("gaussianBlur7x7: images with a dimension of 1-3 px stay in bounds") {
+    // Issue #15: a single REFLECT_101 step maps index n+2 to n-4, which is
+    // negative when n <= 3, so the blur read before the row / before the
+    // buffer. ORB::detectAndCompute reaches such sizes on the top pyramid
+    // levels of any input with a side of ~2-12 px.
+    const int sizes[][2] = {{1, 1}, {2, 2}, {3, 3}, {2, 5}, {5, 3}, {3, 8},
+                            {40, 3}, {3, 40}, {1, 12}, {12, 1}, {2, 1}};
+    for (const auto& s : sizes) {
+        // A constant image must come back unchanged (the kernel sums to 256),
+        // whatever the reflection rule - any out-of-bounds tap breaks this.
+        Image8U flat(s[0], s[1]);
+        for (auto& v : flat.data) v = 200;
+        Image8U flatOut;
+        gaussianBlur7x7(flat, flatOut);
+        int changed = 0;
+        for (uint8_t v : flatOut.data)
+            if (v != 200) ++changed;
+        if (changed)
+            std::cerr << "    " << s[0] << "x" << s[1] << ": " << changed << " constant pixels changed\n";
+        CHECK_EQ(changed, 0);
+
+        // Noise must match the reference, in place and out of place.
+        Image8U src = pseudoRandomImage(s[0], s[1], 777u + s[0] * 31 + s[1]);
+        Image8U expected = referenceBlur7x7(src);
+        Image8U actual;
+        gaussianBlur7x7(src, actual);
+        gaussianBlur7x7(src, src);
+        CHECK_EQ(actual.cols, s[0]);
+        CHECK_EQ(actual.rows, s[1]);
+        int mismatches = 0, inPlaceMismatches = 0;
+        for (size_t i = 0; i < expected.data.size(); ++i) {
+            if (actual.data[i] != expected.data[i]) ++mismatches;
+            if (src.data[i] != expected.data[i]) ++inPlaceMismatches;
+        }
+        if (mismatches || inPlaceMismatches)
+            std::cerr << "    " << s[0] << "x" << s[1] << ": " << mismatches << " / "
+                      << inPlaceMismatches << " (in place) pixels differ\n";
+        CHECK_EQ(mismatches, 0);
+        CHECK_EQ(inPlaceMismatches, 0);
     }
 }
 
