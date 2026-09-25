@@ -5,7 +5,7 @@
 
 This project is an experimental port of the **ORB (Oriented FAST and Rotated BRIEF)** feature detection and description algorithm, extracted and adapted from the OpenCV source code to run **without any OpenCV dependencies**.
 
-> **Status: v0.1.0, early/experimental.** The core pipeline is implemented, tested, and validated against OpenCV's own `cv::ORB` (see [Validation against OpenCV](#validation-against-opencv) below). It is not yet optimized for speed — see [Project Status & Roadmap](#project-status--roadmap).
+> **Status: v0.1.2, early/experimental.** The core pipeline is implemented, tested, and validated against OpenCV's own `cv::ORB` (see [Validation against OpenCV](#validation-against-opencv) below). The two largest hotspots have been fixed (about 4.8× faster end to end than v0.1.1), but it is still single-threaded and scalar — see [Project Status & Roadmap](#project-status--roadmap).
 
 ## Project Overview
 
@@ -114,9 +114,11 @@ Beyond the unit test suite, this implementation has been validated end-to-end ag
 - Full ORB pipeline: pyramid construction, FAST-9 detection with non-maximal suppression, Harris/FAST scoring, orientation (intensity centroid), BRIEF descriptors (`WTA_K` 2/3/4).
 - Unit test suite and CI (Linux + Windows).
 - Validated against OpenCV's `cv::ORB` for keypoint/orientation/descriptor agreement.
+- Performance hotspots fixed: grid-based FAST non-maximal suppression ([issue #7](https://github.com/kalwalt/orbFromCV/issues/7)) and a row-accumulated Gaussian blur ([issue #13](https://github.com/kalwalt/orbFromCV/issues/13)). On a 1637x2048 photo (`profile_orb`, MSVC Release, 8 levels) `detectAndCompute` went from ~918 ms to ~190 ms without changing its output.
+- Gaussian blur handles images of any size, including pyramid levels of 1–3 px ([issue #15](https://github.com/kalwalt/orbFromCV/issues/15)).
 
 **Known limitations / open work:**
-- **Performance**: this is currently a single-threaded, scalar (non-SIMD) implementation, and noticeably slower than OpenCV's SIMD/IPP/multi-threaded build as a result. The O(n²) FAST non-maximal suppression from [issue #7](https://github.com/kalwalt/orbFromCV/issues/7) has been fixed; the remaining time is spread across Gaussian blur, FAST detection and pyramid construction. A SIMD variant is planned.
+- **Performance**: this is still a single-threaded, scalar (non-SIMD) implementation, and noticeably slower than OpenCV's SIMD/IPP/multi-threaded build as a result. The remaining time is spread across FAST detection (now the largest stage), Gaussian blur and pyramid construction. A SIMD variant is planned.
 - **Not bit-identical to OpenCV**: this is an explicit non-goal (see [issue #3](https://github.com/kalwalt/orbFromCV/issues/3)) — the resize/blur implementations are close approximations, not exact ports, so small numerical differences from OpenCV are expected.
 
 Track ongoing work via the [issue tracker](https://github.com/kalwalt/orbFromCV/issues).
