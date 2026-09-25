@@ -9,7 +9,7 @@
 
 int main(int argc, char** argv) {
     if (argc < 2) {
-        std::cerr << "Uso: " << argv[0] << " <percorso_immagine>" << std::endl;
+        std::cerr << "Usage: " << argv[0] << " <image_path>" << std::endl;
         return 1;
     }
 
@@ -21,11 +21,11 @@ int main(int argc, char** argv) {
     unsigned char* img_data = stbi_load(imagePath, &width, &height, &channels, 1);
 
     if (!img_data) {
-        std::cerr << "Errore nel caricamento dell'immagine: " << imagePath << std::endl;
+        std::cerr << "Failed to load image: " << imagePath << std::endl;
         return 1;
     }
 
-    std::cout << "Immagine caricata: " << width << "x" << height << " pixel." << std::endl;
+    std::cout << "Image loaded: " << width << "x" << height << " pixels." << std::endl;
 
     // 2. Conversion to our Image8U format
     Image8U grayImage(width, height);
@@ -45,23 +45,23 @@ int main(int argc, char** argv) {
     std::vector<KeyPoint> keypoints;
     Image8U descriptors;
 
-    std::cout << "Estrazione keypoints e descrittori in corso..." << std::endl;
+    std::cout << "Extracting keypoints and descriptors..." << std::endl;
 
     // 4. Run the algorithm
     orb.detectAndCompute(grayImage, keypoints, descriptors);
 
     // 5. Print the results
-    std::cout << "Estrazione completata!" << std::endl;
-    std::cout << "Keypoints trovati: " << keypoints.size() << std::endl;
+    std::cout << "Extraction complete." << std::endl;
+    std::cout << "Keypoints found: " << keypoints.size() << std::endl;
 
     if (!keypoints.empty()) {
-        std::cout << "\nDettagli del primo Keypoint:" << std::endl;
-        std::cout << " - Coordinate (x, y): (" << keypoints[0].pt.x << ", " << keypoints[0].pt.y << ")" << std::endl;
-        std::cout << " - Risposta (Harris/FAST): " << keypoints[0].response << std::endl;
-        std::cout << " - Angolo: " << keypoints[0].angle << " gradi" << std::endl;
-        std::cout << " - Livello piramide (Octave): " << keypoints[0].octave << std::endl;
+        std::cout << "\nFirst keypoint:" << std::endl;
+        std::cout << " - Coordinates (x, y): (" << keypoints[0].pt.x << ", " << keypoints[0].pt.y << ")" << std::endl;
+        std::cout << " - Response (Harris/FAST): " << keypoints[0].response << std::endl;
+        std::cout << " - Angle: " << keypoints[0].angle << " degrees" << std::endl;
+        std::cout << " - Pyramid level (octave): " << keypoints[0].octave << std::endl;
 
-        std::cout << " - Descrittore (primi 8 byte in esadecimale): ";
+        std::cout << " - Descriptor (first 8 bytes, hex): ";
         const uint8_t* desc_ptr = descriptors.ptr(0);
         for (int i = 0; i < 8; ++i) {
             printf("%02X ", desc_ptr[i]);
