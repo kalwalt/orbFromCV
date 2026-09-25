@@ -121,16 +121,19 @@ Beyond the unit test suite, this implementation has been validated end-to-end ag
 - **Performance**: this is still a single-threaded, scalar (non-SIMD) implementation, and noticeably slower than OpenCV's SIMD/IPP/multi-threaded build as a result. The remaining time is spread across FAST detection (now the largest stage), Gaussian blur and pyramid construction. A SIMD variant is planned.
 - **Not bit-identical to OpenCV**: this is an explicit non-goal (see [issue #3](https://github.com/kalwalt/orbFromCV/issues/3)) — the resize/blur implementations are close approximations, not exact ports, so small numerical differences from OpenCV are expected.
 
-Track ongoing work via the [issue tracker](https://github.com/kalwalt/orbFromCV/issues).
+Track ongoing work via the [issue tracker](https://github.com/kalwalt/orbFromCV/issues). Contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
 This project's own code is licensed under the [GNU Lesser General Public
-License v3.0](LICENSE).
+License v3.0](LICENSE). The LGPL builds on the GNU General Public License
+v3.0, whose text is included in [COPYING](COPYING).
 
 The ORB algorithm implementation (`orb_core.cpp`, `fast_detector.cpp`,
 `orb.cpp`, `orb_pattern.hpp`) is adapted from OpenCV's
 `modules/features2d/src/orb.cpp`, which carries a BSD-3-Clause header
 (Copyright (c) 2009, Willow Garage, Inc.). `stb_image.h` is a separate
 third-party single-header library (MIT / public domain, at the author's
-option). See [NOTICE](NOTICE) for full attribution.
+option). The sample image `pinball.jpg` is a photograph by Robin van
+Mourik, used under a Creative Commons license. See [NOTICE](NOTICE) for
+full attribution.
