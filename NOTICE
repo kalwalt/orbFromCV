@@ -1,5 +1,7 @@
 This project's own code is licensed under the GNU Lesser General Public
-License v3.0 (see LICENSE).
+License v3.0 (see LICENSE). The LGPL v3.0 is a set of additional
+permissions on top of the GNU General Public License v3.0, whose text is
+included in COPYING.
 
 Portions of this project are adapted from OpenCV
 (https://github.com/opencv/opencv), specifically the ORB implementation in
@@ -61,3 +63,8 @@ the BSD-3-Clause header above.
 stb_image.h is a separate third-party single-header library (public
 domain / MIT, at the author's option) - see the license block at the
 top of that file.
+
+pinball.jpg, the sample image used by the examples, tools and
+documentation, is a photograph by Robin van Mourik, licensed under a
+Creative Commons license (as recorded in the image's embedded metadata).
+It is not covered by this project's LGPL license.
