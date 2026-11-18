@@ -113,10 +113,10 @@ Adopts the strategy of jsfeatNext (`tests/fixtures/opencv/`, `scripts/gen-opencv
 
 **Done (issue #32).** Measured on `dev` with the fixtures: FAST without NMS finds 28,946 of OpenCV's 47,487 corners (#20); with NMS 9,960 corners in common and 0 identical scores (#24); end-to-end spatial match rate 8.8% (44/500), 0 matches on octaves 4–7. The fixtures also found three new parity issues, all in `v0.1.3`:
 - **#39** `gaussianBlur7x7` differs from the blur `cv::ORB` applies (float separable filter, single rounding, because ORB blurs a submatrix and misses OpenCV's bit-exact 8U path) on 93% of pixels by 1–2 levels; descriptors on OpenCV's blurred level match 39/40, on ours 15/40.
-- **#40** `resizeBilinear` is corner-aligned; `cv::resize INTER_LINEAR_EXACT` is pixel-centre aligned: max diff 215 levels, every level >= 1 shifted. Main cause of the octave >= 1 mismatch; it is Task 9 done against this oracle (supersedes "`max |diff| <= 1` vs the float version").
+- **#40** `resizeBilinear` is corner-aligned; `cv::resize INTER_LINEAR_EXACT` is pixel-centre aligned: max diff 215 levels, every level >= 1 shifted (0 matches on octaves 4–7; octaves 1–3 match at about octave 0's rate, so #20/#24 dominate there). It is Task 9 done against this oracle (supersedes "`max |diff| <= 1` vs the float version").
 - **#41** `stdRound` = `lround` (half away from zero) vs `cvRound` (half to even): 1-bit descriptor differences at 30°, 60°, …; one-line fix (`std::lrint`).
 
-Suggested order after this: #41 (trivial), #39, #40, then #20, #24 as planned.
+Suggested order after this: #41 (trivial), then #20 and #24 as planned (they drive the octave-0 rate), with #39 and #40 alongside Task 9.
 
 ### Task 3: Fully define outputs on early return + constructor validation (#22)
 

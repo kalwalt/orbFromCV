@@ -107,6 +107,8 @@ TEST_CASE("opencv_ref: every OpenCV link in docs and sources is pinned to 4.10.0
     int unpinned = 0;
     for (const char* rel : files) {
         std::ifstream in(std::string(ORB_SOURCE_DIR) + "/" + rel);
+        if (!in) std::fprintf(stderr, "    cannot open %s\n", rel);
+        CHECK(static_cast<bool>(in)); // a file that cannot be read must not pass silently
         std::string line;
         int lineNo = 0;
         while (std::getline(in, line)) {
@@ -365,10 +367,11 @@ TEST_CASE("opencv_ref: ORB::detectAndCompute keypoints spatially match cv2.ORB (
     std::fprintf(stderr, "    within 2 px on any octave: %d / %d\n", anyOctave, opencv_ref::ORB_DETECT_COUNT);
     for (int o = 0; o < 8; ++o)
         std::fprintf(stderr, "    octave %d: OpenCV %3d, ours %3d, matched %3d\n", o, refPerOctave[o], oursPerOctave[o], matchedPerOctave[o]);
-    // Floor: 8.8% (44 / 500) measured on dev at #32, almost all on octaves 0-3.
-    // Octaves >= 1 are shifted by the resize mapping (#40); FAST misses corners
-    // (#20) and scores differently (#24); the blur flips bits (#39). Raise this
-    // floor in each fixing PR.
+    // Floor: 8.8% (44 / 500) measured on dev at #32: 14/109 on octave 0 and a
+    // similar rate on octaves 1-3, none on octaves 4-7. Octave 0 has no resize,
+    // so FAST's missing corners (#20) and different scores (#24) drive the low
+    // rate everywhere; the resize mapping (#40) adds a shift on octaves >= 1
+    // and the blur (#39) flips descriptor bits. Raise this floor in each fixing PR.
     CHECK(rate >= 0.05);
 }
 

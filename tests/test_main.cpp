@@ -16,7 +16,9 @@ int main() {
         }
     }
 
-    std::cout << (total - failed) << "/" << total << " tests passed."
-               << std::endl;
+    std::cout << (total - failed) << "/" << total << " tests passed";
+    if (test_xfail_count() > 0)
+        std::cout << " (" << test_xfail_count() << " expected failures, see CHECK_XFAIL)";
+    std::cout << "." << std::endl;
     return failed == 0 ? 0 : 1;
 }

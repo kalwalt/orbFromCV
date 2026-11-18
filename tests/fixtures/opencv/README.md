@@ -43,8 +43,10 @@ change of ground truth.
 ## What the blur fixture is
 
 `cv::ORB` blurs every pyramid level in place as a submatrix of its padded buffer
-([orb.cpp#L1224-L1231](https://github.com/opencv/opencv/blob/4.10.0/modules/features2d/src/orb.cpp#L1224-L1231)).
-`cv::GaussianBlur` only takes its 8-bit bit-exact path for non-submatrix sources,
+([orb.cpp#L1230](https://github.com/opencv/opencv/blob/4.10.0/modules/features2d/src/orb.cpp#L1230)).
+`cv::GaussianBlur` only takes its 8-bit bit-exact path when
+`(borderType & BORDER_ISOLATED) || !_src.isSubmatrix()`
+([smooth.dispatch.cpp#L657](https://github.com/opencv/opencv/blob/4.10.0/modules/imgproc/src/smooth.dispatch.cpp#L657)),
 so ORB actually gets the generic float separable filter with a single final
 rounding. `blur-scene.pgm` is that blur (`sepFilter2D` with
 `getGaussianKernel(7, 2, CV_32F)`), which reproduces `cv::ORB::compute()`
@@ -74,8 +76,10 @@ python3 -m venv .venv
 
 Behind a TLS-intercepting proxy add `--use-feature=truststore` to the `pip
 install`. Generation is deterministic: with the pinned toolchain and the
-committed scene a re-run leaves `git status` clean, so a fixture diff always
-means the ground truth changed.
+committed scene a re-run leaves `git status` clean (verified with the Windows
+wheel; the Linux wheel of the same version is expected to agree, since IPP is
+off and the fixtures record the build lines to tell otherwise), so a fixture
+diff always means the ground truth changed.
 
 The scene itself is regenerated only if `tests/fixture_scene.hpp` changes:
 

@@ -181,10 +181,11 @@ def orb_blur(tc: Toolchain, image):
     """The blur cv::ORB applies to each pyramid level.
 
     ORB_Impl blurs every level in place as a *submatrix* of the padded pyramid
-    buffer (orb.cpp#L1224-L1231, 4.10.0). cv::GaussianBlur takes its 8-bit
-    bit-exact fixed-point path only for non-submatrix sources, so ORB gets the
-    generic sepFilter2D path: float32 kernel getGaussianKernel(7, 2), float
-    intermediate, one saturate_cast<uchar> (round half to even) at the end.
+    buffer (orb.cpp#L1230, 4.10.0). cv::GaussianBlur takes its 8-bit bit-exact
+    fixed-point path only `if (sdepth == CV_8U && ((borderType & BORDER_ISOLATED)
+    || !_src.isSubmatrix()))` (smooth.dispatch.cpp#L657), so ORB gets the generic
+    sepFilter2D path: float32 kernel getGaussianKernel(7, 2), float intermediate,
+    one saturate_cast<uchar> (round half to even) at the end.
     Verified: this reproduces cv::ORB::compute() descriptors bit for bit, the
     standalone cv2.GaussianBlur on a plain array does not (17/40 rows).
     """
@@ -296,7 +297,7 @@ RESIZE_SIZE = (533, 400)
 
 def gen_resize(tc: Toolchain, scene: Scene) -> list[str]:
     cv2 = tc.cv2
-    # INTER_LINEAR_EXACT is what ORB_Impl uses to build its pyramid (orb.cpp#L1104-L1112, 4.10.0).
+    # INTER_LINEAR_EXACT is what ORB_Impl uses to build its pyramid (orb.cpp#L1128, 4.10.0).
     r = cv2.resize(scene.image, RESIZE_SIZE, interpolation=cv2.INTER_LINEAR_EXACT)
     write_pgm(FIXTURE_DIR / "resize-533x400.pgm", r)
     return ["// --- resize: cv2.resize(scene, (533, 400), INTER_LINEAR_EXACT) -> resize-533x400.pgm ---",
