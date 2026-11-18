@@ -31,6 +31,15 @@ CI runs the same build and tests on Ubuntu and Windows for every pull request.
 3. **Performance changes:** include before/after numbers from `profile_orb` (per-stage timings), with the image, build type and compiler. Say whether output is byte-identical; if it is not, explain why.
 4. **Changes that affect keypoints or descriptors:** if you have OpenCV installed, include `compare_orb` results before and after.
 5. Keep pull requests focused on one issue and reference it (`Fixes #N`).
+6. Use the same Conventional Commits format for the PR title as for commits (see below).
+
+## Commit messages
+
+Commit messages follow [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/): `<type>(<optional scope>): <imperative summary>`, for example `fix(blur): stay in bounds on images with a dimension <= 3 px` or `perf(fast): replace O(n²) non-maximal suppression with a grid lookup`. The allowed types (`feat`, `fix`, `perf`, `refactor`, `test`, `docs`, `build`, `ci`, `chore`), the suggested scopes, the `!` / `BREAKING CHANGE:` rule and a full example are in the "Commit Messages" section of [AGENTS.md](AGENTS.md). Reference the issue in a footer (`Fixes #N`).
+
+## Release merges
+
+`main` is updated from `dev` with a pull request merged using **"Create a merge commit"**, never "Rebase and merge" or "Squash and merge". Rebasing copies `dev`'s commits onto `main` with new IDs, so the two branches diverge; this happened once (#18) and had to be repaired (#30).
 
 ## Reporting bugs
 
