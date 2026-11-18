@@ -1,2 +1,6 @@
 /build
 build_test/
+
+# Python venv for scripts/gen-opencv-fixtures.py (see tests/fixtures/opencv/README.md)
+.venv/
+

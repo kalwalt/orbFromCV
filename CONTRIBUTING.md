@@ -29,13 +29,17 @@ CI runs the same build and tests on Ubuntu and Windows for every pull request.
 1. Branch from `dev` (not `main`) and open the pull request against `dev`. `main` is updated from `dev` at release time.
 2. **Add or update a test for every behavior change.** For a bug fix, write the test first and check that it fails without your fix. The test framework is a small header in `tests/test_framework.hpp`; no external test libraries.
 3. **Performance changes:** include before/after numbers from `profile_orb` (per-stage timings), with the image, build type and compiler. Say whether output is byte-identical; if it is not, explain why.
-4. **Changes that affect keypoints or descriptors:** if you have OpenCV installed, include `compare_orb` results before and after.
+4. **Changes that affect keypoints or descriptors:** the OpenCV ground-truth tests in `tests/test_opencv_ref.cpp` (committed fixtures from OpenCV 4.10.0, see [tests/fixtures/opencv/README.md](tests/fixtures/opencv/README.md)) show the effect in CI; if your change makes a `CHECK_XFAIL` pass, turn it into a hard `CHECK` and raise the end-to-end match-rate floor. If you have OpenCV installed, `compare_orb` timings are welcome too.
 5. Keep pull requests focused on one issue and reference it (`Fixes #N`).
 6. Use the same Conventional Commits format for the PR title as for commits (see below).
 
 ## Commit messages
 
 Commit messages follow [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/): `<type>(<optional scope>): <imperative summary>`, for example `fix(blur): stay in bounds on images with a dimension <= 3 px` or `perf(fast): replace O(n²) non-maximal suppression with a grid lookup`. The allowed types (`feat`, `fix`, `perf`, `refactor`, `test`, `docs`, `build`, `ci`, `chore`), the suggested scopes, the `!` / `BREAKING CHANGE:` rule and a full example are in the "Commit Messages" section of [AGENTS.md](AGENTS.md). Reference the issue in a footer (`Fixes #N`).
+
+## OpenCV reference version
+
+All parity values and links use **OpenCV 4.10.0**: `docs.opencv.org/4.10.0/...` for documentation and `github.com/opencv/opencv/blob/4.10.0/<path>#L<n>` for source. Unversioned (`4.x`, `master`) links are rejected by a test. Fixtures are generated with the wheel pinned in `scripts/requirements-fixtures.txt`; bumping it is a change of ground truth and needs every fixture regenerated and reviewed.
 
 ## Release merges
 
