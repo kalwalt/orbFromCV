@@ -2,6 +2,9 @@
 #include "test_framework.hpp"
 
 #include <algorithm>
+#include <cstdint>
+#include <cstdio>
+#include <iterator>
 #include <chrono>
 #include <cmath>
 #include <vector>
@@ -193,4 +196,105 @@ TEST_CASE("detectFAST: non-maximal suppression collapses a cluster to its strong
 
     CHECK(suppressed.size() <= raw.size());
     CHECK(!suppressed.empty());
+}
+
+// ---------------------------------------------------------------------------
+// FAST-9 completeness: the early rejection must never drop a real corner (#20)
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// Same Bresenham circle as fast_detector.cpp, (x, y) offsets, index 0 at the top.
+const int kCircle[16][2] = {
+    {0, -3}, {1, -3}, {2, -2}, {3, -1}, {3, 0}, {3, 1}, {2, 2}, {1, 3},
+    {0, 3}, {-1, 3}, {-2, 2}, {-3, 1}, {-3, 0}, {-3, -1}, {-2, -2}, {-1, -3},
+};
+
+// Brute-force FAST-9 segment test: 9 contiguous circle pixels all brighter than
+// p + t, or all darker than p - t, for some of the 16 start positions.
+bool isFast9Corner(const Image8U& img, int x, int y, int t) {
+    const int p = img.at(y, x);
+    int ring[32];
+    for (int i = 0; i < 16; ++i) ring[i] = ring[i + 16] = img.at(y + kCircle[i][1], x + kCircle[i][0]);
+    for (int start = 0; start < 16; ++start) {
+        bool bright = true, dark = true;
+        for (int j = 0; j < 9; ++j) {
+            bright = bright && ring[start + j] > p + t;
+            dark = dark && ring[start + j] < p - t;
+        }
+        if (bright || dark) return true;
+    }
+    return false;
+}
+
+std::vector<std::pair<int, int>> sortedXY(const std::vector<KeyPoint>& kps) {
+    std::vector<std::pair<int, int>> v;
+    for (const auto& k : kps) v.emplace_back(static_cast<int>(k.pt.x), static_cast<int>(k.pt.y));
+    std::sort(v.begin(), v.end());
+    return v;
+}
+
+Image8U seededNoise(int w, int h, uint32_t seed, uint8_t low, uint8_t span) {
+    Image8U img(w, h);
+    for (auto& v : img.data) {
+        seed = seed * 1664525u + 1013904223u;
+        v = static_cast<uint8_t>(low + (seed >> 24) % span);
+    }
+    return img;
+}
+
+} // namespace
+
+TEST_CASE("detectFAST: a 9-arc covering only two compass pixels is a corner, all 16 rotations") {
+    // Circle pixels start..start+8 brighter than the centre. For start = 1 the
+    // arc 1..9 touches only compass pixels 4 and 8, which the old 3-of-4
+    // early rejection (a FAST-12 criterion) threw away.
+    int detected = 0;
+    for (int start = 0; start < 16; ++start) {
+        Image8U img(7, 7);
+        for (auto& v : img.data) v = 100;
+        for (int j = 0; j < 9; ++j) {
+            const int i = (start + j) % 16;
+            img.at(3 + kCircle[i][1], 3 + kCircle[i][0]) = 200;
+        }
+        CHECK(isFast9Corner(img, 3, 3, 20));
+        std::vector<KeyPoint> kps;
+        detectFAST(img, kps, 20, false);
+        const bool found = kps.size() == 1 && kps[0].pt.x == 3.0f && kps[0].pt.y == 3.0f;
+        if (!found) std::fprintf(stderr, "    arc starting at circle pixel %d not detected (%zu keypoints)\n", start, kps.size());
+        detected += found;
+    }
+    CHECK_EQ(detected, 16);
+}
+
+TEST_CASE("detectFAST without NMS matches a brute-force FAST-9 oracle on noise and structure") {
+    const int t = 20;
+    int totalRef = 0, totalMissing = 0, totalExtra = 0;
+    for (uint32_t seed = 1; seed <= 5; ++seed) {
+        // Low-contrast noise with a few hard-edged rectangles: corners of every shape.
+        Image8U img = seededNoise(96, 72, seed, 90, 60);
+        for (int y = 10; y < 40; ++y) for (int x = 20; x < 60; ++x) img.at(y, x) = static_cast<uint8_t>(255 - img.at(y, x));
+        for (int y = 30; y < 65; ++y) for (int x = 50; x < 90; ++x) img.at(y, x) = static_cast<uint8_t>(img.at(y, x) / 3);
+
+        std::vector<std::pair<int, int>> ref;
+        for (int y = 3; y < img.rows - 3; ++y)
+            for (int x = 3; x < img.cols - 3; ++x)
+                if (isFast9Corner(img, x, y, t)) ref.emplace_back(x, y);
+        std::sort(ref.begin(), ref.end()); // set_difference needs (x, y) order on both sides
+
+        std::vector<KeyPoint> kps;
+        detectFAST(img, kps, t, false);
+        std::vector<std::pair<int, int>> ours = sortedXY(kps);
+
+        std::vector<std::pair<int, int>> missing, extra;
+        std::set_difference(ref.begin(), ref.end(), ours.begin(), ours.end(), std::back_inserter(missing));
+        std::set_difference(ours.begin(), ours.end(), ref.begin(), ref.end(), std::back_inserter(extra));
+        totalRef += static_cast<int>(ref.size());
+        totalMissing += static_cast<int>(missing.size());
+        totalExtra += static_cast<int>(extra.size());
+    }
+    std::fprintf(stderr, "    oracle corners: %d, missing: %d, extra: %d\n", totalRef, totalMissing, totalExtra);
+    CHECK(totalRef > 500); // the images must actually have corners
+    CHECK_EQ(totalMissing, 0);
+    CHECK_EQ(totalExtra, 0);
 }

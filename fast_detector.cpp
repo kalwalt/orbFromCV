@@ -54,22 +54,25 @@ void detectFAST(const Image8U& img, std::vector<KeyPoint>& keypoints, int thresh
         for (int x = margin; x < img.cols - margin; ++x) {
             int p = row_ptr[x];
             
-            // Quick test: Check pixels 0, 8, 4, 12
-            // At least 3 of these must be brighter or darker to potentially be a corner
             int lower_threshold = p - threshold;
             int upper_threshold = p + threshold;
-            
-            int p0 = row_ptr[x + offsets[0]];
-            int p8 = row_ptr[x + offsets[8]];
-            int p4 = row_ptr[x + offsets[4]];
-            int p12 = row_ptr[x + offsets[12]];
-            
-            int count_bright = (p0 > upper_threshold) + (p8 > upper_threshold) + 
-                               (p4 > upper_threshold) + (p12 > upper_threshold);
-            int count_dark = (p0 < lower_threshold) + (p8 < lower_threshold) + 
-                             (p4 < lower_threshold) + (p12 < lower_threshold);
 
-            if (count_bright < 3 && count_dark < 3) {
+            // Early rejection, as OpenCV's FAST_t<16>: a 9-pixel arc covers at
+            // least one pixel of every pair of opposite circle pixels (i, i+8),
+            // so if any pair has neither pixel brighter (or neither darker)
+            // there is no bright (dark) arc. Checked pair by pair, cheapest
+            // first. (The previous "3 of the 4 compass pixels" test is the
+            // FAST-12 criterion and dropped about a third of FAST-9 corners, #20.)
+            bool maybe_bright = true, maybe_dark = true;
+            for (int i = 0; i < 8 && (maybe_bright || maybe_dark); ++i) {
+                // order 0, 4, 2, 6, 1, 5, 3, 7: compass pairs first
+                static const int pair_order[8] = {0, 4, 2, 6, 1, 5, 3, 7};
+                const int a = row_ptr[x + offsets[pair_order[i]]];
+                const int b = row_ptr[x + offsets[pair_order[i] + 8]];
+                maybe_bright = maybe_bright && (a > upper_threshold || b > upper_threshold);
+                maybe_dark = maybe_dark && (a < lower_threshold || b < lower_threshold);
+            }
+            if (!maybe_bright && !maybe_dark) {
                 continue; // Reject early
             }
 

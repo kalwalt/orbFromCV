@@ -203,7 +203,7 @@ void reportSetDiff(const std::set<XY>& ours, const std::set<XY>& ref) {
 
 } // namespace
 
-TEST_CASE("opencv_ref: detectFAST without NMS finds the same corners as cv2.FAST (#20)") {
+TEST_CASE("opencv_ref: detectFAST without NMS finds the same corners as cv2.FAST") {
     Image8U scene = loadScene();
     std::vector<uint8_t> bin = readBinary(fixturePath("fast-t20.bin"));
     CHECK_EQ(static_cast<int>(bin.size() / 4), opencv_ref::FAST_COUNT);
@@ -214,11 +214,10 @@ TEST_CASE("opencv_ref: detectFAST without NMS finds the same corners as cv2.FAST
     detectFAST(scene, kps, opencv_ref::FAST_THRESHOLD, false);
     std::set<XY> ours = fastSet(kps);
     reportSetDiff(ours, ref);
-    // The FAST-12 early rejection drops about a third of the FAST-9 corners.
-    CHECK_XFAIL(ours == ref, "#20");
+    CHECK(ours == ref);
 }
 
-TEST_CASE("opencv_ref: detectFAST with NMS matches cv2.FAST corners and scores (#20, #24)") {
+TEST_CASE("opencv_ref: detectFAST with NMS matches cv2.FAST corners and scores (#24)") {
     Image8U scene = loadScene();
     std::vector<uint8_t> bin = readBinary(fixturePath("fast-t20-nms.bin"));
     CHECK_EQ(static_cast<int>(bin.size() / 8), opencv_ref::FAST_COUNT_NMS);
@@ -233,7 +232,9 @@ TEST_CASE("opencv_ref: detectFAST with NMS matches cv2.FAST corners and scores (
     detectFAST(scene, kps, opencv_ref::FAST_THRESHOLD, true);
     std::set<XY> ours = fastSet(kps);
     reportSetDiff(ours, ref);
-    CHECK_XFAIL(ours == ref, "#20");
+    // The raw corners are identical (test above); NMS keeps different ones
+    // because the score that ranks neighbours is not OpenCV's (#24).
+    CHECK_XFAIL(ours == ref, "#24");
 
     // Where both agree on a corner, the score should be OpenCV's max-threshold
     // score; this port computes a SAD-style sum instead (#24).
@@ -365,11 +366,12 @@ TEST_CASE("opencv_ref: ORB::detectAndCompute keypoints spatially match cv2.ORB (
     std::fprintf(stderr, "    within 2 px on any octave: %d / %d\n", anyOctave, opencv_ref::ORB_DETECT_COUNT);
     for (int o = 0; o < 8; ++o)
         std::fprintf(stderr, "    octave %d: OpenCV %3d, ours %3d, matched %3d\n", o, refPerOctave[o], oursPerOctave[o], matchedPerOctave[o]);
-    // Floor: 8.8% (44 / 500) measured on dev at #32: 14/109 on octave 0 and a
-    // similar rate on octaves 1-3, none on octaves 4-7. Octave 0 has no resize,
-    // so FAST's missing corners (#20) and different scores (#24) drive the low
-    // rate everywhere; the resize mapping (#40) adds a shift on octaves >= 1
-    // and the blur (#39) flips descriptor bits. Raise this floor in each fixing PR.
+    // Floor: 8.8% (44 / 500) measured on dev at #32, 9.2% (46 / 500) after #20:
+    // 17/109 on octave 0 and a similar rate on octaves 1-3, none on octaves
+    // 4-7. Octave 0 has no resize, so the FAST score and Harris pre-filter
+    // (#24) drive the low rate everywhere; the resize mapping (#40) adds a
+    // shift on octaves >= 1 and the blur (#39) flips descriptor bits. Raise
+    // this floor in each fixing PR.
     CHECK(rate >= 0.05);
 }
 
