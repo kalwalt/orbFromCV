@@ -28,6 +28,22 @@ private:
 // Harris block size used for scoring, as in OpenCV's ORB.
 static const int HARRIS_BLOCK_SIZE = 7;
 
+// How far the (unrotated or rotated) BRIEF pattern can reach from a keypoint:
+// ceil of the largest point norm in bit_pattern_31_ (19 px). The table is fixed
+// at 31 px, so this does not shrink with a smaller patchSize.
+static int patternReach() {
+    static const int reach = [] {
+        const Point2i* p = reinterpret_cast<const Point2i*>(bit_pattern_31_);
+        float maxNorm2 = 0.f;
+        for (int i = 0; i < 512; ++i) {
+            float n2 = static_cast<float>(p[i].x * p[i].x + p[i].y * p[i].y);
+            maxNorm2 = std::max(maxNorm2, n2);
+        }
+        return static_cast<int>(std::ceil(std::sqrt(maxNorm2)));
+    }();
+    return reach;
+}
+
 static void initializeOrbPattern(const Point2i* pattern0, std::vector<Point2i>& pattern, int ntuples, int tupleSize, int poolSize) {
     std::mt19937 rng(0x12345678); // Fixed seed to ensure consistent descriptors
     std::uniform_int_distribution<int> dist(0, poolSize - 1);
@@ -118,11 +134,13 @@ void ORB::detectAndCompute(const Image8U& image, std::vector<KeyPoint>& keypoint
             // border of max(edgeThreshold, ceil(halfPatchSize * sqrt(2)),
             // HARRIS_BLOCK_SIZE / 2) pixels and samples into the padding; this
             // port has no padding, so the same margin must be enforced on the
-            // keypoints themselves or the rotated BRIEF pattern (up to 19 px),
-            // ICAngles (15 px) and the Harris block (3 px) read outside the
-            // level. Differs from OpenCV only for edgeThreshold < 22 (issue #35).
+            // keypoints themselves or the rotated BRIEF pattern (19 px, fixed
+            // table), ICAngles (patchSize / 2) and the Harris block (3 px) read
+            // outside the level. Differs from OpenCV only for edgeThreshold < 22
+            // with the default patchSize (issue #35).
             const int descPatchSize = static_cast<int>(std::ceil((patchSize / 2) * std::sqrt(2.0)));
-            const int border = std::max(edgeThreshold, std::max(descPatchSize, HARRIS_BLOCK_SIZE / 2));
+            const int border = std::max(std::max(edgeThreshold, patternReach()),
+                                        std::max(descPatchSize, HARRIS_BLOCK_SIZE / 2));
             for (const auto& kp : levelKeypoints) {
                 if (kp.pt.x >= border && kp.pt.x < imagePyramid[level].cols - border &&
                     kp.pt.y >= border && kp.pt.y < imagePyramid[level].rows - border) {

@@ -3,6 +3,7 @@
 #include "image_utils.hpp"
 #include "orb_pattern.hpp"
 #include "test_framework.hpp"
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 
@@ -280,16 +281,19 @@ TEST_CASE("ORB::detectAndCompute: small edgeThreshold keeps every reader inside 
         for (int x = 1; x < size; x += 6)
             image.at(y, x) = 220;
 
-    // The rotated BRIEF pattern reaches ceil(halfPatchSize * sqrt(2)) = 22 px
-    // from the keypoint, ICAngles 15 px, Harris 3 px. Below that the sampling
-    // must still stay inside the level (ASan catches any violation), and no
-    // returned keypoint may be closer to its level's edge than the readers need.
-    const int patchSize = 31;
-    const int minBorder = static_cast<int>(std::ceil((patchSize / 2) * std::sqrt(2.0)));
+    // The fixed 31 px BRIEF pattern reaches 19 px from the keypoint whatever
+    // patchSize is; ICAngles reads patchSize / 2, Harris 3 px. Below that the
+    // sampling must still stay inside the level (ASan catches any violation),
+    // and no returned keypoint may be closer to its level's edge than the
+    // readers need: max(ceil(patchSize / 2 * sqrt(2)), 19).
+    const int patternReach = 19;
     const float scaleFactor = 1.2f;
     const int nlevels = 4;
 
+    for (int patchSize : {31, 15, 7})
     for (int edgeThreshold : {0, 3, 5, 10, 16, 21}) {
+        const int minBorder = std::max(
+            static_cast<int>(std::ceil((patchSize / 2) * std::sqrt(2.0))), patternReach);
         ORB orb(500, scaleFactor, nlevels, edgeThreshold, 0, 2, ORB::HARRIS_SCORE, patchSize, 20);
         std::vector<KeyPoint> keypoints;
         Image8U descriptors;
