@@ -51,7 +51,15 @@
 - [ ] **Step 3: Verify**: `grep -n "Commit Messages" AGENTS.md` and `grep -n "merge commit" CONTRIBUTING.md` both match.
 - [ ] **Step 4: Commit** `docs(agents): adopt Conventional Commits and document the release merge method` with `Fixes #31`. Open PR into `dev`.
 
-### Task 2: ASan/UBSan CI job and `ORB_SANITIZE` option (#26)
+### Task 1b: Descriptors sampled at the wrong location on octaves >= 1 (#34) — PR #36
+
+Found by the first ASan run of Task 2. `detectAndCompute` rescaled keypoints to level-0 coordinates only at the end, but `computeOrbDescriptors` expects them already rescaled (OpenCV semantics), so every octave >= 1 descriptor was sampled at `pt / scale`. Fix: move the rescale between the orientation and descriptor stages; test rebuilds level 1 and recomputes the descriptors (0/136 identical before, 136/136 after). Blocks Task 2.
+
+### Task 1c: Small `edgeThreshold` reads outside the level (#35) — PR #37, stacked on #36
+
+No level padding here, unlike OpenCV, so `edgeThreshold < 22` let the BRIEF pattern (19 px), `ICAngles` (15 px) and Harris (3 px) read out of bounds. Fix: border = `max(edgeThreshold, ceil(patchSize / 2 * sqrt(2)), HARRIS_BLOCK_SIZE / 2)`, documented in `orb.hpp`. Padding like OpenCV is a possible follow-up. Blocks Task 2.
+
+### Task 2: ASan/UBSan CI job and `ORB_SANITIZE` option (#26) — PR #38, stacked on #37
 
 **Files:**
 - Modify: `CMakeLists.txt` (add `option(ORB_SANITIZE ...)`)
