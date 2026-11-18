@@ -21,6 +21,10 @@ class ORB {
 public:
     enum ScoreType { HARRIS_SCORE = 0, FAST_SCORE = 1 };
 
+    // edgeThreshold: keypoints closer than this to a level's border are dropped.
+    // Unlike OpenCV, pyramid levels are not padded, so the effective border is
+    // at least ceil(patchSize / 2 * sqrt(2)) (22 with the default patchSize),
+    // the reach of the rotated BRIEF pattern. Values below that behave as 22.
     ORB(int nfeatures = 500, float scaleFactor = 1.2f, int nlevels = 8,
         int edgeThreshold = 31, int firstLevel = 0, int wta_k = 2,
         ScoreType scoreType = HARRIS_SCORE, int patchSize = 31, int fastThreshold = 20);

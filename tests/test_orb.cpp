@@ -266,3 +266,43 @@ TEST_CASE("ORB::detectAndCompute: octave-1 descriptors are sampled at the keypoi
     CHECK(octave1 > 50);
     CHECK_EQ(identical, octave1);
 }
+
+// ---------------------------------------------------------------------------
+// Small edgeThreshold values must not read outside the level (issue #35)
+// ---------------------------------------------------------------------------
+
+TEST_CASE("ORB::detectAndCompute: small edgeThreshold keeps every reader inside the level") {
+    // Corners right at the image border on every level: dots start at 1 px.
+    const int size = 96;
+    Image8U image(size, size);
+    for (auto& v : image.data) v = 30;
+    for (int y = 1; y < size; y += 6)
+        for (int x = 1; x < size; x += 6)
+            image.at(y, x) = 220;
+
+    // The rotated BRIEF pattern reaches ceil(halfPatchSize * sqrt(2)) = 22 px
+    // from the keypoint, ICAngles 15 px, Harris 3 px. Below that the sampling
+    // must still stay inside the level (ASan catches any violation), and no
+    // returned keypoint may be closer to its level's edge than the readers need.
+    const int patchSize = 31;
+    const int minBorder = static_cast<int>(std::ceil((patchSize / 2) * std::sqrt(2.0)));
+    const float scaleFactor = 1.2f;
+    const int nlevels = 4;
+
+    for (int edgeThreshold : {0, 3, 5, 10, 16, 21}) {
+        ORB orb(500, scaleFactor, nlevels, edgeThreshold, 0, 2, ORB::HARRIS_SCORE, patchSize, 20);
+        std::vector<KeyPoint> keypoints;
+        Image8U descriptors;
+        orb.detectAndCompute(image, keypoints, descriptors);
+
+        CHECK(!keypoints.empty());
+        for (const auto& kp : keypoints) {
+            const float scale = std::pow(scaleFactor, static_cast<float>(kp.octave));
+            const int cols = static_cast<int>(std::round(size / scale));
+            const int rows = static_cast<int>(std::round(size / scale));
+            const float lx = kp.pt.x / scale, ly = kp.pt.y / scale;
+            CHECK(lx >= minBorder && lx < cols - minBorder);
+            CHECK(ly >= minBorder && ly < rows - minBorder);
+        }
+    }
+}

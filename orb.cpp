@@ -25,6 +25,9 @@ private:
 };
 } // namespace
 
+// Harris block size used for scoring, as in OpenCV's ORB.
+static const int HARRIS_BLOCK_SIZE = 7;
+
 static void initializeOrbPattern(const Point2i* pattern0, std::vector<Point2i>& pattern, int ntuples, int tupleSize, int poolSize) {
     std::mt19937 rng(0x12345678); // Fixed seed to ensure consistent descriptors
     std::uniform_int_distribution<int> dist(0, poolSize - 1);
@@ -111,8 +114,15 @@ void ORB::detectAndCompute(const Image8U& image, std::vector<KeyPoint>& keypoint
             ScopedAccumulator timer(&fastDetectionMs);
             detectFAST(imagePyramid[level], levelKeypoints, fastThreshold, true);
 
-            // Filter by image border
-            int border = edgeThreshold;
+            // Filter by image border. OpenCV pads every level with a reflected
+            // border of max(edgeThreshold, ceil(halfPatchSize * sqrt(2)),
+            // HARRIS_BLOCK_SIZE / 2) pixels and samples into the padding; this
+            // port has no padding, so the same margin must be enforced on the
+            // keypoints themselves or the rotated BRIEF pattern (up to 19 px),
+            // ICAngles (15 px) and the Harris block (3 px) read outside the
+            // level. Differs from OpenCV only for edgeThreshold < 22 (issue #35).
+            const int descPatchSize = static_cast<int>(std::ceil((patchSize / 2) * std::sqrt(2.0)));
+            const int border = std::max(edgeThreshold, std::max(descPatchSize, HARRIS_BLOCK_SIZE / 2));
             for (const auto& kp : levelKeypoints) {
                 if (kp.pt.x >= border && kp.pt.x < imagePyramid[level].cols - border &&
                     kp.pt.y >= border && kp.pt.y < imagePyramid[level].rows - border) {
@@ -128,7 +138,7 @@ void ORB::detectAndCompute(const Image8U& image, std::vector<KeyPoint>& keypoint
         // Apply Harris scoring to get the best 'featuresNum' points
         if (scoreType == HARRIS_SCORE && !filteredKeypoints.empty()) {
             ScopedAccumulator timer(&harrisScoringMs);
-            HarrisResponses(imagePyramid[level], layerInfo, filteredKeypoints, 7, 0.04f);
+            HarrisResponses(imagePyramid[level], layerInfo, filteredKeypoints, HARRIS_BLOCK_SIZE, 0.04f);
 
             // Sort descending by response
             std::sort(filteredKeypoints.begin(), filteredKeypoints.end(),
