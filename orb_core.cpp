@@ -1,12 +1,16 @@
 #include "orb_core.hpp"
+#include <cmath>
 #include <random>
 
 const float HARRIS_K = 0.04f;
 const float ORB_PI = 3.14159265358979323846f;
 
-// Helper to replace OpenCV's cvRound
+// Helper to replace OpenCV's cvRound: round to nearest, halves to even.
+// lrint honours the current rounding mode, which is round-to-nearest-even by
+// default on every supported toolchain; lround would round halves away from
+// zero and flip descriptor bits whenever sin/cos of the angle is 0.5 (#41).
 inline int stdRound(float value) {
-    return static_cast<int>(std::lround(value));
+    return static_cast<int>(std::lrint(value));
 }
 
 // Helper to replace OpenCV's fastAtan2 (Returns angle in degrees 0..360)

@@ -256,8 +256,7 @@ TEST_CASE("opencv_ref: detectFAST with NMS matches cv2.FAST corners and scores (
 // ---------------------------------------------------------------------------
 
 // Two checks: described on OpenCV's own blurred level (blur-scene.pgm) the
-// descriptor code is exact except for the half-rounding of stdRound (#41, one
-// bit at 30 degrees); described on our blur it also inherits #39.
+// descriptor code must be exact; described on our blur it inherits #39.
 TEST_CASE("opencv_ref: computeOrbDescriptors equals cv2.ORB.compute() on fixed level-0 keypoints") {
     Image8U scene = loadScene();
     Image8U blurred;
@@ -304,8 +303,7 @@ TEST_CASE("opencv_ref: computeOrbDescriptors equals cv2.ORB.compute() on fixed l
     }
     std::fprintf(stderr, "    identical rows when described on OpenCV's blurred level: %d / %d\n",
                  identicalOnRefBlur, opencv_ref::ORB_COMPUTE_COUNT);
-    CHECK(identicalOnRefBlur >= opencv_ref::ORB_COMPUTE_COUNT - 1); // regression guard for the descriptor code
-    CHECK_XFAIL(identicalOnRefBlur == opencv_ref::ORB_COMPUTE_COUNT, "#41");
+    CHECK_EQ(identicalOnRefBlur, opencv_ref::ORB_COMPUTE_COUNT);
 }
 
 // ---------------------------------------------------------------------------
