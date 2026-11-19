@@ -20,6 +20,7 @@ chain compares against one reference.
 | `fast-t20-nms.bin` | same with NMS: uint16 LE `x, y` + float32 LE `response` | `detectFAST(nms=true)` exact set and scores (#20, #24) |
 | in header | `cv2.ORB_create(500).compute()` on 40 fixed level-0 keypoints with angles | `computeOrbDescriptors` byte for byte |
 | in header | `cv2.ORB_create(500).detectAndCompute(scene)`: 500 keypoints + descriptors | `ORB::detectAndCompute` spatial match rate (floor raised as issues close) |
+| in header | `cv2.ORB_create(500, scoreType=ORB_FAST_SCORE).detectAndCompute(scene)`: 527 keypoints (ties at the cut kept) + descriptors | `ORB::detectAndCompute` with `FAST_SCORE`: count, positions, responses exact; descriptors (#49) |
 | `resize-533x400.pgm` | `cv2.resize(scene, (533, 400), INTER_LINEAR_EXACT)` (level 1 at 1.2) | `resizeBilinear` within 1 gray level (#40) |
 
 Checks that fail on purpose until an issue is fixed use `CHECK_XFAIL(cond, "#N")`
