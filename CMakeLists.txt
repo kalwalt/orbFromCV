@@ -7,9 +7,13 @@ project(StandaloneORB VERSION 1.0 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
 
-# Add maximum optimization flags for performance
+# Add maximum optimization flags for performance.
+# -ffp-contract=off: the Gaussian blur reproduces OpenCV's float arithmetic
+# bit for bit (issue #39), which needs a*b + c to stay two roundings; GCC
+# fuses it into an FMA on targets that have one (e.g. -march=x86-64-v3),
+# even across an explicit cast, and that moves rounding-tie pixels by one.
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -Wall -Wextra")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -Wall -Wextra -ffp-contract=off")
 endif()
 
 # Build every target with AddressSanitizer + UndefinedBehaviorSanitizer.

@@ -136,13 +136,14 @@ void gaussianBlur7x7(const Image8U& src, Image8U& dst) {
                                     0.190712824f, 0.131074876f, 0.0701593235f};
     const int kRadius = 3;
 
-    // a * b + c in float32 with two roundings, i.e. no fused multiply-add. The
-    // explicit cast on the product stops compilers from contracting it into an
-    // FMA, so every build (GCC, Clang, MSVC, Emscripten) computes the same
-    // bytes. This is what OpenCV computes on targets without FMA, opencv.js
-    // included; OpenCV builds that dispatch to FMA hardware differ from it on
-    // the rare pixels whose exact value sits on a rounding tie (about 3 per
-    // million on noise), by 1 gray level.
+    // a * b + c in float32 with two roundings, i.e. no fused multiply-add.
+    // GCC contracts this into an FMA on targets that have one even across the
+    // explicit cast, so CMakeLists.txt builds with -ffp-contract=off (GCC and
+    // Clang; MSVC does not contract under its default /fp:precise). Every
+    // build then computes the same bytes. This is what OpenCV computes on
+    // targets without FMA, opencv.js included; OpenCV builds that dispatch to
+    // FMA hardware differ from it on the rare pixels whose exact value sits on
+    // a rounding tie (about 3 per million on noise), by 1 gray level.
     auto mulAdd = [](float a, float b, float c) {
         return static_cast<float>(static_cast<float>(a * b) + c);
     };
