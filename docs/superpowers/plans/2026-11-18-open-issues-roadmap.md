@@ -205,32 +205,16 @@ Suggested order after this: #41 (trivial), then #20 and #24 as planned (they dri
 - [ ] **Step 6: Measure** `compare_orb` match rate before/after; table in the PR.
 - [ ] **Step 7: Commit** `fix(fast): use OpenCV's max-threshold corner score and Harris pre-filtering` with `Fixes #24`. PR into `dev`.
 
-### Task 8: Dead `initializeOrbPattern` and `ntuples` (#25 items 1–2)
+### Task 8: Dead `initializeOrbPattern`, `ntuples`, blur on empty levels (#25) — done
 
-**Files:**
-- Modify: `orb_core.cpp:2` (`<random>`), `orb_core.cpp:232-…` (delete), `orb.cpp:206-209`
-- Test: `tests/test_orb.cpp`
-- Branch: `kalwalt/refactor/orb-pattern-cleanup`
+Items 1 and 2 of #25 plus the blur skip from item 3, in one PR on
+`kalwalt/refactor/orb-pattern-cleanup`; the fixed-point resize of item 3 landed
+earlier through PR #47 (#40), so Task 9 is folded in here.
 
-- [ ] **Step 1: Pin the descriptors**: test `detectAndCompute: wta_k 3 and 4 descriptors are stable` — fixed seeded image, `wta_k` 3 then 4; record the first 32 bytes of row 0 and a CRC of the whole descriptor matrix as literals in the test (generate them once with the current code).
-- [ ] **Step 2: Run** → PASS (baseline).
-- [ ] **Step 3: Delete** the unused `initializeOrbPattern` from `orb_core.cpp` and `#include <random>` if nothing else uses it; set `ntuples = dsize * 4` in `orb.cpp` and fix the comment.
-- [ ] **Step 4: Run** → still PASS (output unchanged); `g++ -std=c++14 -Wall -Wextra -c orb_core.cpp` warning-free.
-- [ ] **Step 5: Commit** `refactor(orb): drop the dead initializeOrbPattern copy and generate only the tuples wta_k 3/4 read` with `Refs #25`. PR into `dev`.
-
-### Task 9: Fixed-point `resizeBilinear` with precomputed columns, skip blur on empty levels (#25 item 3)
-
-**Files:**
-- Modify: `image_utils.cpp:6-44`, `orb.cpp` blur loop
-- Test: `tests/test_image_utils.cpp`, `tests/test_orb.cpp`
-- Branch: `kalwalt/perf/fixed-point-resize`
-
-- [ ] **Step 1: Write characterization test** `resizeBilinear: fixed point stays within 1 gray level of the float reference` — keep the current float version in the test as `resizeBilinearRef`; random 97x61 → 81x51, 640x480 → 533x400; assert `max |diff| <= 1`.
-- [ ] **Step 2: Implement**: per-column `x1,x2,wx` (11-bit integer weights) computed once per resize, per-row `y1,y2,wy` once per row, rounding `(sum + (1<<21)) >> 22`.
-- [ ] **Step 3: Run** → PASS; full suite green.
-- [ ] **Step 4: Skip `gaussianBlur7x7`** on levels with zero keypoints; test `detectAndCompute: output unchanged when empty levels skip the blur` (keypoints/descriptors identical to a run without the skip, on a 64x64 image where top levels have none).
-- [ ] **Step 5: Measure** `profile_orb` (pyramid stage) and `compare_orb` before/after; table in the PR, closes #25.
-- [ ] **Step 6: Commit** `perf(pyramid): fixed-point bilinear resize with precomputed columns; skip blur on empty levels` with `Fixes #25`. PR into `dev`.
+- [x] Pinned the whole output (keypoints + descriptor bytes, FNV-1a digest) for `wta_k` 2, 3, 4 on a seeded texture and for an 8-level dot grid whose top levels have no keypoints; generated with the code before the change.
+- [x] Deleted the undeclared `initializeOrbPattern` copy and `<random>` from `orb_core.cpp`; `ntuples = 32 * 4` in `orb.cpp` (OpenCV's `descriptorSize() * 4`).
+- [x] `detectAndCompute` skips `gaussianBlur7x7` on levels without keypoints; the pyramid is built from the unblurred levels, so nothing else reads the blurred image.
+- [x] Suite 67/67 and ASan/UBSan clean with the digests unchanged. Commit `refactor(orb): drop the dead pattern copy, generate 128 tuples, skip the blur on empty levels`, `Fixes #25`.
 
 ### Task 10: WebAssembly build and CI job (#27)
 

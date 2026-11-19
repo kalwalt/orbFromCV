@@ -275,9 +275,11 @@ void ORB::detectAndCompute(const Image8U& image, std::vector<KeyPoint>& keypoint
         if (wta_k == 2) {
             pattern.assign(pattern0, pattern0 + npoints);
         } else { // wta_k == 3 or 4, validated on entry
-            // dsize is 32 bytes, which means 256 bits (or tuples).
-            // 256 tuples * wta_k points per tuple.
-            int ntuples = 32 * 8;
+            // Each tuple of wta_k points yields 2 bits, so a 32-byte descriptor
+            // reads 4 tuples per byte: 128 tuples, as OpenCV's
+            // descriptorSize() * 4. The tuples are drawn in order, so the bytes
+            // are the same as with the 256 that used to be generated (#25).
+            const int ntuples = 32 * 4;
             initializeOrbPattern(pattern0, pattern, ntuples, wta_k, npoints);
         }
     }
@@ -290,15 +292,9 @@ void ORB::detectAndCompute(const Image8U& image, std::vector<KeyPoint>& keypoint
     descriptors = Image8U(dsize, allKeypoints.size());
 
     for (int level = 0; level < nlevels; ++level) {
-        {
-            // Apply Gaussian Blur before computing descriptors for stability
-            ScopedAccumulator timer(&blurMs);
-            gaussianBlur7x7(imagePyramid[level], imagePyramid[level]);
-        }
-
         std::vector<KeyPoint> levelKpts;
         std::vector<int> originalIndices;
-        
+
         for (size_t i = 0; i < allKeypoints.size(); ++i) {
             if (allKeypoints[i].octave == level) {
                 levelKpts.push_back(allKeypoints[i]);
@@ -306,7 +302,18 @@ void ORB::detectAndCompute(const Image8U& image, std::vector<KeyPoint>& keypoint
             }
         }
 
-        if (!levelKpts.empty()) {
+        // The blurred level is read only by the descriptors (the pyramid was
+        // built from the unblurred levels), so a level without keypoints
+        // needs no blur (#25).
+        if (levelKpts.empty()) continue;
+
+        {
+            // Apply Gaussian Blur before computing descriptors for stability
+            ScopedAccumulator timer(&blurMs);
+            gaussianBlur7x7(imagePyramid[level], imagePyramid[level]);
+        }
+
+        {
             ScopedAccumulator timer(&descriptorsMs);
             Image8U levelDescriptors(dsize, levelKpts.size());
             computeOrbDescriptors(imagePyramid[level], layerInfo, layerScale, levelKpts, levelDescriptors, pattern, dsize, wta_k);
