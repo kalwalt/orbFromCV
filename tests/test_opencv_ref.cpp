@@ -389,6 +389,55 @@ TEST_CASE("opencv_ref: ORB::detectAndCompute keypoints spatially match cv2.ORB (
     CHECK(rate >= 0.95);
 }
 
+// FAST_SCORE: no Harris, each level keeps its best featuresNum corners by FAST
+// score (KeyPointsFilter::retainBest). With the stages above exact, the whole
+// output must be: same keypoints, same responses, same descriptors (#21).
+TEST_CASE("opencv_ref: ORB::detectAndCompute with FAST_SCORE equals cv2.ORB(FAST_SCORE) exactly") {
+    Image8U scene = loadScene();
+    ORB orb(500, 1.2f, 8, 31, 0, 2, ORB::FAST_SCORE, 31, 20);
+    std::vector<KeyPoint> kps;
+    Image8U desc;
+    orb.detectAndCompute(scene, kps, desc);
+    std::fprintf(stderr, "    keypoints: ours %zu, OpenCV %d\n", kps.size(), opencv_ref::ORB_DETECT_FAST_COUNT);
+    CHECK_EQ(static_cast<int>(kps.size()), opencv_ref::ORB_DETECT_FAST_COUNT);
+
+    int exact = 0, identicalDesc = 0, responseMismatches = 0;
+    for (int i = 0; i < opencv_ref::ORB_DETECT_FAST_COUNT; ++i) {
+        const float* r = opencv_ref::ORB_DETECT_FAST_KEYPOINT[i];
+        for (size_t j = 0; j < kps.size(); ++j) {
+            if (kps[j].octave != static_cast<int>(r[5]) || kps[j].pt.x != r[0] || kps[j].pt.y != r[1]) continue;
+            ++exact;
+            if (kps[j].response != r[4]) {
+                ++responseMismatches;
+                std::fprintf(stderr, "    response differs at (%g, %g): ours %g, OpenCV %g\n", r[0], r[1], kps[j].response, r[4]);
+            }
+            int hamming = 0;
+            for (int k = 0; k < 32; ++k) {
+                uint8_t x = desc.at(static_cast<int>(j), k) ^ opencv_ref::ORB_DETECT_FAST_DESCRIPTOR[i * 32 + k];
+                while (x) { hamming += x & 1; x >>= 1; }
+            }
+            identicalDesc += hamming == 0;
+            if (hamming) {
+                int dup = 0;
+                for (int m = 0; m < opencv_ref::ORB_DETECT_FAST_COUNT; ++m) {
+                    const float* q = opencv_ref::ORB_DETECT_FAST_KEYPOINT[m];
+                    dup += q[0] == r[0] && q[1] == r[1] && q[5] == r[5];
+                }
+                std::fprintf(stderr, "    desc differs at (%g, %g) oct %d: %d bits, angle ours %g OpenCV %g (OpenCV entries here: %d)\n",
+                             r[0], r[1], static_cast<int>(r[5]), hamming, kps[j].angle, r[3], dup);
+            }
+            break;
+        }
+    }
+    std::fprintf(stderr, "    at the exact position: %d / %d, with a byte-identical descriptor: %d\n",
+                 exact, opencv_ref::ORB_DETECT_FAST_COUNT, identicalDesc);
+    CHECK_EQ(exact, opencv_ref::ORB_DETECT_FAST_COUNT);
+    CHECK_EQ(responseMismatches, 0);
+    // 517 / 527 today: the other 10 differ by 1-3 bits because ICAngles uses
+    // std::atan2 where OpenCV uses its fastAtan2 polynomial (#49).
+    CHECK_XFAIL(identicalDesc == exact, "#49");
+}
+
 // ---------------------------------------------------------------------------
 // resizeBilinear vs cv2.resize(INTER_LINEAR)
 // ---------------------------------------------------------------------------

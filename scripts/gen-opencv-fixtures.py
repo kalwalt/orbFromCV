@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Regenerate the OpenCV ground-truth fixtures in tests/fixtures/opencv/ (issue #32).
 
-    python scripts/gen-opencv-fixtures.py [--only blur|fast|orb-compute|orb-detect|resize]
+    python scripts/gen-opencv-fixtures.py [--only blur|fast|orb-compute|orb-detect|orb-detect-fast|resize]
 
 Run by hand from the gitignored .venv; never by CI or CMake. CI asserts against
 the committed output. See tests/fixtures/opencv/README.md.
@@ -303,6 +303,22 @@ def gen_orb_detect(tc: Toolchain, scene: Scene) -> list[str]:
     return out
 
 
+def gen_orb_detect_fast(tc: Toolchain, scene: Scene) -> list[str]:
+    cv2 = tc.cv2
+    orb = cv2.ORB_create(500, scoreType=cv2.ORB_FAST_SCORE)
+    kps, desc = orb.detectAndCompute(scene.image, None)
+    out = ["// --- orb-detect-fast: cv2.ORB_create(500, scoreType=ORB_FAST_SCORE).detectAndCompute(scene) ---",
+           "// Same layout as orb-detect; responses are FAST scores and each level keeps its best featuresNum (#21).",
+           f"static const int ORB_DETECT_FAST_COUNT = {len(kps)};",
+           "static const float ORB_DETECT_FAST_KEYPOINT[][6] = {"]
+    for k in kps:
+        out.append(f"    {{{c_float(k.pt[0])}, {c_float(k.pt[1])}, {c_float(k.size)}, "
+                   f"{c_float(k.angle)}, {c_float(k.response)}, {k.octave}.0f}},")
+    out.append("};")
+    out += cpp_u8_array("ORB_DETECT_FAST_DESCRIPTOR", desc)
+    return out
+
+
 RESIZE_SIZE = (533, 400)
 
 
@@ -322,6 +338,7 @@ GENERATORS = {
     "fast": gen_fast,
     "orb-compute": gen_orb_compute,
     "orb-detect": gen_orb_detect,
+    "orb-detect-fast": gen_orb_detect_fast,
     "resize": gen_resize,
 }
 

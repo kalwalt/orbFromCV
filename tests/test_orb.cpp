@@ -441,3 +441,42 @@ TEST_CASE("ORB::detectAndCompute: Harris only runs on the best 2*featuresNum FAS
     std::fprintf(stderr, "    selected keypoints whose FAST score is below the 2N cutoff: %d / %zu\n", belowCutoff, kps.size());
     CHECK_EQ(belowCutoff, 0);
 }
+
+// ---------------------------------------------------------------------------
+// FAST_SCORE must honour nfeatures like HARRIS_SCORE does (#21)
+// ---------------------------------------------------------------------------
+
+TEST_CASE("ORB::detectAndCompute: FAST_SCORE keeps at most nfeatures keypoints, the best by FAST score") {
+    Image8U image = makeTexture(256, 256, 9);
+    const int nfeatures = 60;
+
+    ORB orb(nfeatures, 1.2f, 1, 31, 0, 2, ORB::FAST_SCORE, 31, 20);
+    std::vector<KeyPoint> kps;
+    Image8U desc;
+    orb.detectAndCompute(image, kps, desc);
+    std::fprintf(stderr, "    FAST_SCORE keypoints returned: %zu (nfeatures %d)\n", kps.size(), nfeatures);
+    // At most nfeatures, except for points tied with the nfeatures-th response,
+    // which OpenCV's retainBest keeps too (FAST scores are small integers, so
+    // ties at the cut are common).
+    std::vector<float> responses;
+    for (const auto& k : kps) responses.push_back(k.response);
+    std::sort(responses.begin(), responses.end(), std::greater<float>());
+    CHECK(responses.size() >= static_cast<size_t>(nfeatures));
+    for (size_t i = nfeatures; i < responses.size(); ++i) CHECK_EQ(responses[i], responses[nfeatures - 1]);
+    CHECK_EQ(desc.rows, static_cast<int>(kps.size()));
+
+    // The kept ones are the strongest: no dropped corner inside the border may
+    // outscore the weakest kept one.
+    std::vector<KeyPoint> all;
+    detectFAST(image, all, 20, true);
+    float weakestKept = 1e30f;
+    for (const auto& k : kps) weakestKept = std::min(weakestKept, k.response);
+    int strongerDropped = 0;
+    for (const auto& k : all) {
+        if (k.pt.x < 31 || k.pt.x >= image.cols - 31 || k.pt.y < 31 || k.pt.y >= image.rows - 31) continue;
+        bool kept = false;
+        for (const auto& s : kps) kept = kept || (s.pt.x == k.pt.x && s.pt.y == k.pt.y);
+        if (!kept && k.response > weakestKept) ++strongerDropped;
+    }
+    CHECK_EQ(strongerDropped, 0);
+}

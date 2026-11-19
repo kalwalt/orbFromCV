@@ -176,13 +176,16 @@ void ORB::detectAndCompute(const Image8U& image, std::vector<KeyPoint>& keypoint
             }
         }
 
-        // Apply Harris scoring to get the best 'featuresNum' points
+        // Keep the best 'featuresNum' points of this level, as OpenCV does.
         if (scoreType == HARRIS_SCORE && !filteredKeypoints.empty()) {
             ScopedAccumulator timer(&harrisScoringMs);
-            // As OpenCV: keep only the best 2 * featuresNum corners by FAST
-            // score before Harris, then the best featuresNum by Harris (#24).
+            // Keep only the best 2 * featuresNum corners by FAST score before
+            // Harris, then the best featuresNum by Harris (#24).
             retainBest(filteredKeypoints, 2 * featuresNum);
             HarrisResponses(imagePyramid[level], layerInfo, filteredKeypoints, HARRIS_BLOCK_SIZE, 0.04f);
+            retainBest(filteredKeypoints, featuresNum);
+        } else {
+            // FAST_SCORE: ranked by the FAST score itself (#21).
             retainBest(filteredKeypoints, featuresNum);
         }
 
