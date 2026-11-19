@@ -489,7 +489,9 @@ TEST_CASE("ORB: constructor rejects the other unsupported parameters") {
     CHECK(constructorThrows(500, 1.2f, 8, -1, 0, 2, ORB::HARRIS_SCORE, 31, 20)); // edgeThreshold < 0
     CHECK(constructorThrows(500, 1.2f, 8, 31, 0, 2, ORB::HARRIS_SCORE, 0, 20));  // patchSize <= 0
     CHECK(constructorThrows(500, 1.2f, 8, 31, 0, 2, ORB::HARRIS_SCORE, 31, 0));  // fastThreshold <= 0
-    CHECK(constructorThrows(500, 1.2f, 8, 31, 0, 2, static_cast<ORB::ScoreType>(2), 31, 20)); // scoreType
+    // scoreType: an out-of-range value cannot be produced without undefined
+    // behaviour (ScoreType is an unscoped enum; UBSan flags the cast), so the
+    // constructor's check for it is not exercised here.
     // Valid combinations, including wta_k 3 and 4 and FAST_SCORE, construct fine.
     CHECK(!constructorThrows(500, 1.2f, 8, 31, 0, 3, ORB::HARRIS_SCORE, 31, 20));
     CHECK(!constructorThrows(500, 1.2f, 8, 31, 0, 4, ORB::FAST_SCORE, 31, 20));
