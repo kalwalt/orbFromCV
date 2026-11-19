@@ -1,6 +1,5 @@
 #include "orb_core.hpp"
 #include <cmath>
-#include <random>
 
 const float HARRIS_K = 0.04f;
 const float ORB_PI = 3.14159265358979323846f;
@@ -229,35 +228,5 @@ void computeOrbDescriptors(const Image8U& imagePyramid, const std::vector<Rect>&
             }
         }
         #undef GET_VALUE
-    }
-}
-
-// Replaces OpenCV's RNG with standard C++ <random>
-void initializeOrbPattern(const Point2i* pattern0, std::vector<Point2i>& pattern, int ntuples, int tupleSize, int poolSize)
-{
-    std::mt19937 rng(0x12345678); 
-    std::uniform_int_distribution<int> dist(0, poolSize - 1);
-    
-    int i, k, k1;
-    pattern.resize(ntuples * tupleSize);
-
-    for( i = 0; i < ntuples; i++ )
-    {
-        for( k = 0; k < tupleSize; k++ )
-        {
-            for(;;)
-            {
-                int idx = dist(rng);
-                Point2i pt = pattern0[idx];
-                for( k1 = 0; k1 < k; k1++ )
-                    if( pattern[tupleSize * i + k1] == pt )
-                        break;
-                if( k1 == k )
-                {
-                    pattern[tupleSize * i + k] = pt;
-                    break;
-                }
-            }
-        }
     }
 }

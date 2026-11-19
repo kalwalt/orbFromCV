@@ -9,6 +9,8 @@
 #include <functional>
 #include <map>
 #include <cstdint>
+#include <cstring>
+#include <iostream>
 #include <stdexcept>
 
 namespace {
@@ -496,4 +498,69 @@ TEST_CASE("ORB: constructor rejects the other unsupported parameters") {
     CHECK(!constructorThrows(500, 1.2f, 8, 31, 0, 3, ORB::HARRIS_SCORE, 31, 20));
     CHECK(!constructorThrows(500, 1.2f, 8, 31, 0, 4, ORB::FAST_SCORE, 31, 20));
     CHECK(!constructorThrows(0, 1.01f, 1, 0, 0, 2, ORB::HARRIS_SCORE, 1, 1));
+}
+
+// ---------------------------------------------------------------------------
+// Pinned descriptor bytes (issue #25)
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// FNV-1a over the keypoints and descriptor bytes, so a change in either shows
+// up as one number. Printed on failure to make re-pinning a copy-paste.
+uint64_t pipelineDigest(const std::vector<KeyPoint>& keypoints, const Image8U& descriptors) {
+    uint64_t h = 1469598103934665603ull;
+    auto mix = [&h](uint64_t v) { h = (h ^ v) * 1099511628211ull; };
+    mix(keypoints.size());
+    for (const KeyPoint& kp : keypoints) {
+        float f[3] = {kp.pt.x, kp.pt.y, kp.angle};
+        uint32_t u[3];
+        std::memcpy(u, f, sizeof u);
+        mix(u[0]); mix(u[1]); mix(u[2]);
+        mix(static_cast<uint64_t>(kp.octave));
+    }
+    for (int r = 0; r < descriptors.rows; ++r)
+        for (int c = 0; c < descriptors.cols; ++c) mix(descriptors.at(r, c));
+    return h;
+}
+
+void checkDigest(const Image8U& image, int wta_k, int nlevels, uint64_t expected) {
+    ORB orb(300, 1.2f, nlevels, 31, 0, wta_k, ORB::HARRIS_SCORE, 31, 20);
+    std::vector<KeyPoint> keypoints;
+    Image8U descriptors;
+    orb.detectAndCompute(image, keypoints, descriptors);
+    const uint64_t got = pipelineDigest(keypoints, descriptors);
+    if (got != expected)
+        std::cerr << "    digest(wta_k=" << wta_k << ", nlevels=" << nlevels << ", " << image.cols
+                  << "x" << image.rows << ") = " << got << "ull, pinned " << expected << "ull, keypoints "
+                  << keypoints.size() << std::endl;
+    CHECK(got == expected);
+}
+
+} // namespace
+
+// The tuples for wta_k 3 and 4 are drawn from a seeded generator; the
+// descriptor bytes they produce are pinned so that pattern-generation
+// clean-ups (#25: ntuples = dsize * 4 instead of 256, of which only the first
+// 128 were read) can be shown to leave every byte unchanged.
+TEST_CASE("ORB::detectAndCompute: wta_k 2, 3 and 4 descriptors are pinned") {
+    checkDigest(makeTexture(128, 128, 5), 2, 3, 17541434619098581510ull);
+    checkDigest(makeTexture(128, 128, 5), 3, 3, 2545071877638946689ull);
+    checkDigest(makeTexture(128, 128, 5), 4, 3, 17239560901648413008ull);
+}
+
+// A 128 px dot grid with 8 levels has keypoints on the lower levels only (the
+// top levels are smaller than the border); the blur is skipped there (#25) and
+// the output must not move.
+TEST_CASE("ORB::detectAndCompute: levels without keypoints do not change the output") {
+    Image8U image = makeDotGrid(128, 30, 220);
+    ORB orb(300, 1.2f, 8, 31, 0, 2, ORB::HARRIS_SCORE, 31, 20);
+    std::vector<KeyPoint> keypoints;
+    Image8U descriptors;
+    orb.detectAndCompute(image, keypoints, descriptors);
+    int maxOctave = -1;
+    for (const KeyPoint& kp : keypoints) maxOctave = std::max(maxOctave, kp.octave);
+    CHECK(!keypoints.empty());
+    CHECK(maxOctave >= 0 && maxOctave < 7); // at least one level has none
+    checkDigest(image, 2, 8, 1162776104059584058ull);
 }
