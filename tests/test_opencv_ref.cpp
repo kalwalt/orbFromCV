@@ -365,21 +365,23 @@ TEST_CASE("opencv_ref: ORB::detectAndCompute keypoints spatially match cv2.ORB (
     for (int o = 0; o < 8; ++o)
         std::fprintf(stderr, "    octave %d: OpenCV %3d, ours %3d, matched %3d\n", o, refPerOctave[o], oursPerOctave[o], matchedPerOctave[o]);
     // Floor history: 8.8% on dev at #32; 9.2% after #20; 33.6% (168 / 500)
-    // after #24, with every one of the 109 octave-0 keypoints matched and a
-    // rate falling with the octave (41/90, 13/75, 5/63, then none). Octave 0
-    // has no resize, so what separates octaves >= 1 is the resize mapping
-    // (#40); the blur (#39) only flips descriptor bits. Raise this floor in
-    // each fixing PR.
-    CHECK(rate >= 0.30);
+    // after #24 (all 109 octave-0 keypoints matched); 100% (500 / 500, mean
+    // Hamming 0.6 bits) after #40 put every pyramid level on OpenCV's own
+    // pixels. What is left is the +-1 blur difference (#39), which only flips
+    // descriptor bits. Keep this floor at 95%: a few keypoints may legitimately
+    // move by a pixel if the blur fix changes a Harris response at the cut.
+    CHECK(rate >= 0.95);
 }
 
 // ---------------------------------------------------------------------------
 // resizeBilinear vs cv2.resize(INTER_LINEAR)
 // ---------------------------------------------------------------------------
 
-// ORB builds its pyramid with INTER_LINEAR_EXACT; resizeBilinear uses a
-// corner-aligned mapping instead of OpenCV's pixel-centre one (#40).
-TEST_CASE("opencv_ref: resizeBilinear is within 1 gray level of cv2.resize INTER_LINEAR_EXACT (#40)") {
+// ORB builds its pyramid with INTER_LINEAR_EXACT. resizeBilinear reproduces
+// that bit for bit: pixel-centre alignment, 8-bit fixed-point coefficients per
+// pass, one rounding over 16 bits (#40), so this is a hard assertion and the
+// CHECK_XFAIL that guarded it is gone.
+TEST_CASE("opencv_ref: resizeBilinear is byte-identical to cv2.resize INTER_LINEAR_EXACT (#40)") {
     Image8U scene = loadScene();
     Image8U expected = readPGM(fixturePath("resize-533x400.pgm"));
     CHECK(expected.cols == opencv_ref::RESIZE_COLS && expected.rows == opencv_ref::RESIZE_ROWS);
@@ -388,13 +390,15 @@ TEST_CASE("opencv_ref: resizeBilinear is within 1 gray level of cv2.resize INTER
     CHECK(actual.cols == expected.cols && actual.rows == expected.rows);
 
     int maxDiff = 0;
-    long over1 = 0;
+    long differing = 0;
     for (int y = 0; y < expected.rows && y < actual.rows; ++y)
         for (int x = 0; x < expected.cols && x < actual.cols; ++x) {
             int d = std::abs(static_cast<int>(actual.at(y, x)) - static_cast<int>(expected.at(y, x)));
             maxDiff = std::max(maxDiff, d);
-            over1 += d > 1;
+            differing += d != 0;
         }
-    std::fprintf(stderr, "    max |diff| = %d gray levels, pixels differing by > 1: %ld\n", maxDiff, over1);
-    CHECK_XFAIL(maxDiff <= 1, "#40");
+    std::fprintf(stderr, "    differing pixels: %ld of %d, max |diff| = %d\n",
+                 differing, expected.cols * expected.rows, maxDiff);
+    CHECK_EQ(maxDiff, 0);
+    CHECK_EQ(differing, 0L);
 }

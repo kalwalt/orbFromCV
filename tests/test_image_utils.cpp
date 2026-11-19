@@ -67,6 +67,84 @@ TEST_CASE("resizeBilinear: intensity increases monotonically along a linear ramp
             CHECK(dst.at(y, x) >= dst.at(y, x - 1));
 }
 
+// Pixel-centre alignment as cv::resize defines it: srcpos = scale * (d + 0.5)
+// - 0.5, with scale = srcsize / dstsize. An exact horizontal ramp reads the
+// mapping straight back out of the resized image, so this pins the geometry
+// independently of the committed fixture (#40).
+TEST_CASE("resizeBilinear: maps destination centres to source centres, as cv::resize does") {
+    const int srcW = 100, srcH = 80, dstW = 83, dstH = 66;
+    Image8U ramp(srcW, srcH);
+    for (int y = 0; y < srcH; ++y)
+        for (int x = 0; x < srcW; ++x) ramp.at(y, x) = static_cast<uint8_t>(x);
+
+    Image8U dst;
+    resizeBilinear(ramp, dst, dstW, dstH);
+
+    // Expected value: dst(x) = round_half_even(srcpos), srcpos =
+    // (srcW/dstW) * (x + 0.5) - 0.5, in exact rationals.
+    int mismatches = 0, worst = 0;
+    for (int y = 0; y < dstH; ++y) {
+        for (int x = 0; x < dstW; ++x) {
+            long long num = static_cast<long long>(srcW) * (2LL * x + 1) - dstW;
+            long long den = 2LL * dstW;
+            long long base = num / den;
+            long long frac = num - base * den;
+            if (frac < 0) { frac += den; --base; }
+
+            int expected;
+            if (base < 0 || base >= srcW - 1) {
+                expected = static_cast<int>(base < 0 ? 0 : srcW - 1); // edge replicated
+            } else {
+                // Fixed-point weights first (the implementation's own steps),
+                // then one rounding over the two passes, as OpenCV's bit-exact
+                // path does.
+                int w1 = static_cast<int>((256 * frac + den / 2) / den);
+                int w0 = 256 - w1;
+                expected = (w0 * static_cast<int>(base) + w1 * static_cast<int>(base + 1) + 128) >> 8;
+            }
+            int got = static_cast<int>(dst.at(y, x));
+            int d = std::abs(got - expected);
+            worst = std::max(worst, d);
+            mismatches += d != 0;
+        }
+    }
+    std::fprintf(stderr, "    mapping mismatches: %d of %d, worst |diff| = %d\n",
+                 mismatches, dstW * dstH, worst);
+    CHECK_EQ(mismatches, 0);
+}
+
+TEST_CASE("resizeBilinear: nearest-edge replication outside the source") {
+    // The first destination pixel of an upscale maps before the first source
+    // pixel; OpenCV clamps to the edge with a full weight rather than reading
+    // out of bounds or blending with a neighbour.
+    Image8U src(2, 2);
+    src.at(0, 0) = 0;   src.at(0, 1) = 200;
+    src.at(1, 0) = 0;   src.at(1, 1) = 200;
+
+    Image8U dst;
+    resizeBilinear(src, dst, 5, 5);
+
+    CHECK_EQ(static_cast<int>(dst.at(0, 0)), 0);
+    CHECK_EQ(static_cast<int>(dst.at(4, 4)), 200);
+}
+
+TEST_CASE("resizeBilinear: downscale averages whole pixels, not corners") {
+    // A 2x checkerboard averaged down must come out mid-grey everywhere; the
+    // old corner-aligned mapping sampled the corners instead and returned the
+    // checkerboard at the destination resolution.
+    Image8U src(8, 8);
+    for (int y = 0; y < 8; ++y)
+        for (int x = 0; x < 8; ++x)
+            src.at(y, x) = ((x + y) & 1) ? 255 : 0;
+
+    Image8U dst;
+    resizeBilinear(src, dst, 2, 2);
+
+    for (int y = 0; y < 2; ++y)
+        for (int x = 0; x < 2; ++x)
+            CHECK(std::abs(static_cast<int>(dst.at(y, x)) - 128) <= 2);
+}
+
 TEST_CASE("resizeBilinear: zero target dimension leaves dst untouched") {
     Image8U dst(3, 3);
     Image8U src(4, 4);

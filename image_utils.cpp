@@ -3,42 +3,113 @@
 #include <utility>
 #include <vector>
 
+namespace {
+
+// Fixed-point scale of the interpolation coefficients: OpenCV's
+// INTER_RESIZE_COEF_BITS, 8 of them used here (ufixedpoint16's fixedShift).
+// Two passes at 8 fractional bits each give a single rounding over 16 bits.
+const int kCoefBits = 8;
+const int kCoefOne = 1 << kCoefBits;
+
+// Floor division, for the negative source coordinates that the centre-aligned
+// mapping produces on the first destination pixel of an upscale.
+long long floorDiv(long long n, long long d) {
+    long long q = n / d;
+    if (n % d != 0 && ((n < 0) != (d < 0))) --q;
+    return q;
+}
+
+// round-half-to-even of num / den (both positive), matching cvRound on the
+// softdouble OpenCV feeds it while building its coefficients.
+long long roundHalfEven(long long num, long long den) {
+    long long q = floorDiv(num, den);
+    long long r = num - q * den;
+    if (2 * r > den) return q + 1;
+    if (2 * r == den) return q + (q & 1);
+    return q;
+}
+
+// One axis of the resize mapping, precomputed once per call as OpenCV's
+// INTER_LINEAR_EXACT does it: destination pixel centres are aligned to source
+// pixel centres, srcpos = scale * (d + 0.5) - 0.5 with scale = srcsize/dstsize.
+// Outside the source the nearest edge pixel is replicated (offset clamped to
+// the last column/row with a full weight), which is what OpenCV's min_x/max_x
+// clamping amounts to.
+struct AxisMapping {
+    std::vector<int> offset;   // first source index
+    std::vector<int> weight0;  // weight of `offset`, in 1/256 units, sum = 256
+    std::vector<int> weight1;  // weight of `offset + 1`
+};
+
+AxisMapping buildAxisMapping(int srcSize, int dstSize) {
+    AxisMapping m;
+    m.offset.resize(dstSize);
+    m.weight0.resize(dstSize);
+    m.weight1.resize(dstSize);
+
+    const long long den = 2LL * dstSize;
+    for (int d = 0; d < dstSize; ++d) {
+        // srcpos = (srcSize * (2d + 1) - dstSize) / (2 * dstSize), kept exact so
+        // the fraction rounds the same way OpenCV's softdouble does.
+        const long long num = static_cast<long long>(srcSize) * (2LL * d + 1) - dstSize;
+        long long base = floorDiv(num, den);
+        long long frac = num - base * den; // 0 <= frac < den
+
+        int w0, w1;
+        if (base < 0) {
+            base = 0;
+            w0 = kCoefOne;
+            w1 = 0;
+        } else if (base >= srcSize - 1) {
+            base = srcSize - 1;
+            w0 = kCoefOne;
+            w1 = 0;
+        } else {
+            w1 = static_cast<int>(roundHalfEven(static_cast<long long>(kCoefOne) * frac, den));
+            w0 = kCoefOne - w1;
+        }
+        m.offset[d] = static_cast<int>(base);
+        m.weight0[d] = w0;
+        m.weight1[d] = w1;
+    }
+    return m;
+}
+
+} // namespace
+
 void resizeBilinear(const Image8U& src, Image8U& dst, int new_width, int new_height) {
     if (new_width == 0 || new_height == 0) return;
 
     dst = Image8U(new_width, new_height);
-    
-    float x_ratio = static_cast<float>(src.cols - 1) / new_width;
-    float y_ratio = static_cast<float>(src.rows - 1) / new_height;
 
-    for (int y = 0; y < new_height; ++y) {
-        float src_y = y * y_ratio;
-        int y1 = static_cast<int>(src_y);
-        int y2 = std::min(y1 + 1, src.rows - 1);
-        float y_diff = src_y - y1;
+    const AxisMapping x = buildAxisMapping(src.cols, new_width);
+    const AxisMapping y = buildAxisMapping(src.rows, new_height);
 
-        uint8_t* dst_row = dst.ptr(y);
-        const uint8_t* src_row1 = src.ptr(y1);
-        const uint8_t* src_row2 = src.ptr(y2);
+    // Both passes are fixed point, as in OpenCV's INTER_LINEAR_EXACT: the
+    // horizontal pass carries 8 fractional bits per sample, the vertical pass
+    // accumulates those and rounds once over 16 bits. Output is therefore
+    // byte-identical to cv2.resize(..., INTER_LINEAR_EXACT), the interpolation
+    // ORB_Impl builds its pyramid with (#40).
+    for (int row = 0; row < new_height; ++row) {
+        const int y0 = y.offset[row], y1 = y0 + 1;
+        const int b0 = y.weight0[row], b1 = y.weight1[row];
+        const uint8_t* row0 = src.ptr(y0);
+        const uint8_t* row1 = src.ptr(std::min(y1, src.rows - 1));
+        uint8_t* out = dst.ptr(row);
 
-        for (int x = 0; x < new_width; ++x) {
-            float src_x = x * x_ratio;
-            int x1 = static_cast<int>(src_x);
-            int x2 = std::min(x1 + 1, src.cols - 1);
-            float x_diff = src_x - x1;
+        for (int col = 0; col < new_width; ++col) {
+            const int x0 = x.offset[col], x1 = x0 + 1;
+            const int a0 = x.weight0[col], a1 = x.weight1[col];
 
-            // Bilinear interpolation formula
-            float a = src_row1[x1];
-            float b = src_row1[x2];
-            float c = src_row2[x1];
-            float d = src_row2[x2];
+            // Horizontal pass: 8 fractional bits, since a0 + a1 = 256 and
+            // samples are <= 255, so the sum peaks at 65280 and needs no
+            // saturation (OpenCV saturates its uint16 intermediate here too).
+            const int h0 = a0 * row0[x0] + a1 * row0[std::min(x1, src.cols - 1)];
+            const int h1 = a0 * row1[x0] + a1 * row1[std::min(x1, src.cols - 1)];
 
-            float pixel = a * (1.0f - x_diff) * (1.0f - y_diff) +
-                          b * (x_diff) * (1.0f - y_diff) +
-                          c * (1.0f - x_diff) * (y_diff) +
-                          d * (x_diff) * (y_diff);
-
-            dst_row[x] = static_cast<uint8_t>(pixel);
+            // Vertical pass: 16 fractional bits in total, rounded once.
+            const int value = (b0 * h0 + b1 * h1 + (1 << 15)) >> 16;
+            out[col] = static_cast<uint8_t>(std::min(255, std::max(0, value)));
         }
     }
 }
