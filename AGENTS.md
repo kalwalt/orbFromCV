@@ -21,6 +21,17 @@ covering `fast_detector.cpp`, `orb_core.cpp`, `image_utils.cpp`, and the
 cmake --build build --target orb_tests
 ctest --test-dir build -C Debug --output-on-failure
 ```
+- Output is platform-dependent on textured images: keypoint angles come from the
+  float `std::atan2` of each libm (glibc, MSVC, WSL differ) and feed the
+  descriptors; `std::uniform_int_distribution` differs between libstdc++ and
+  MSVC, so `wta_k` 3/4 descriptors do too. Never pin descriptor bytes or digests
+  on textures across platforms; the symmetric dot grid in `test_orb.cpp` is
+  stable, or compare two computations made by the same binary.
+- Sanitizers: `cmake -DORB_SANITIZE=ON` (clang/gcc ASan+UBSan, MSVC ASan; CI job
+  `sanitizers`). UBSan flags casting an out-of-range int to `ORB::ScoreType`,
+  so don't test "unknown scoreType" that way.
+- Summary line: `N/M tests passed (k expected failures, see CHECK_XFAIL)`; an
+  expected failure that starts passing fails the suite as XPASS.
 
 ## File-Scoped Commands
 | Task | Command |
@@ -37,6 +48,14 @@ ctest --test-dir build -C Debug --output-on-failure
   `orb_core.cpp` — they're structured for future SIMD/WASM ports.
 - `orb_pattern.hpp` (BRIEF sampling pattern) is generated data — don't hand-edit.
 - Add a test in `tests/` alongside any change to core algorithm behavior.
+- GCC/Clang build with `-ffp-contract=off`: FMA contraction changed rounding
+  ties and broke the blur fixtures on FMA targets. No `-ffast-math`, no
+  `-march=native`, and no reordering of the float32 blur taps without re-running
+  the fixture suite.
+- Fixtures assume OpenCV with SIMD/FMA dispatch off (`cv2.setUseOptimized(False)`,
+  what opencv.js computes); regenerate one section with
+  `scripts/gen-opencv-fixtures.py --only <section>`, the scene with the
+  `dump_scene` target.
 
 ## OpenCV Reference Version
 - Every comparison with OpenCV uses **4.10.0** (`opencv-contrib-python==4.10.0.84`),
@@ -103,7 +122,17 @@ Fixes #15
 Co-Authored-By: (the agent model's name and attribution byline)
 ```
 
-## Release Merges
-`dev` → `main` release PRs MUST be merged with **"Create a merge commit"**.
-"Rebase and merge" copies `dev`'s commits onto `main` with new IDs and makes
-the two branches diverge (this happened on #18 and was repaired in #30).
+## Branches and Releases
+- Work branches start from `origin/dev` as `<user>/<type>/<slug>`; PRs target `dev`
+  and are squash-merged. Stacked PRs: `git rebase --onto origin/dev <old-base>`
+  after the base PR is squashed.
+- `Fixes #N` closes the issue only when the commit reaches `main`, i.e. at the
+  `dev` → `main` release merge; issues stay open on `dev` until then.
+- Milestones match release tags (`v0.1.3`, `v0.2.0`). The release PR body carries
+  the release notes; after the merge: tag the merge commit, `gh release create
+  <tag> --verify-tag --notes-file ...`, close the milestone.
+- Keep `docs/superpowers/plans/2026-11-18-open-issues-roadmap.md` in step: mark
+  each task done in the PR that does it.
+- `dev` → `main` release PRs MUST be merged with **"Create a merge commit"**.
+  "Rebase and merge" copies `dev`'s commits onto `main` with new IDs and makes
+  the two branches diverge (this happened on #18 and was repaired in #30).
