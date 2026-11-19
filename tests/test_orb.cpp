@@ -8,6 +8,7 @@
 #include <cmath>
 #include <functional>
 #include <map>
+#include <random>
 #include <cstdint>
 #include <cstring>
 #include <iostream>
@@ -507,7 +508,9 @@ TEST_CASE("ORB: constructor rejects the other unsupported parameters") {
 namespace {
 
 // FNV-1a over the keypoints and descriptor bytes, so a change in either shows
-// up as one number. Printed on failure to make re-pinning a copy-paste.
+// up as one number. Printed on failure to make re-pinning a copy-paste. Only
+// usable on images whose keypoint angles are platform-independent (the dot
+// grid); on textures the float atan2 differs between libm implementations.
 uint64_t pipelineDigest(const std::vector<KeyPoint>& keypoints, const Image8U& descriptors) {
     uint64_t h = 1469598103934665603ull;
     auto mix = [&h](uint64_t v) { h = (h ^ v) * 1099511628211ull; };
@@ -539,14 +542,67 @@ void checkDigest(const Image8U& image, int wta_k, int nlevels, uint64_t expected
 
 } // namespace
 
-// The tuples for wta_k 3 and 4 are drawn from a seeded generator; the
-// descriptor bytes they produce are pinned so that pattern-generation
-// clean-ups (#25: ntuples = dsize * 4 instead of 256, of which only the first
-// 128 were read) can be shown to leave every byte unchanged.
-TEST_CASE("ORB::detectAndCompute: wta_k 2, 3 and 4 descriptors are pinned") {
-    checkDigest(makeTexture(128, 128, 5), 2, 3, 17541434619098581510ull);
-    checkDigest(makeTexture(128, 128, 5), 3, 3, 2545071877638946689ull);
-    checkDigest(makeTexture(128, 128, 5), 4, 3, 17239560901648413008ull);
+namespace {
+
+// The generator orb.cpp uses for wta_k 3 and 4 (same seed, same draw order),
+// kept here with the tuple count the pipeline used before #25 (256) so the
+// test can show that generating only the 128 tuples that are read leaves every
+// descriptor byte unchanged, on every platform. Descriptor digests cannot be
+// pinned across platforms: the float atan2 of the orientation differs between
+// libm implementations (#49), and so does uniform_int_distribution.
+void referencePattern256(std::vector<Point2i>& pattern, int tupleSize) {
+    const Point2i* pattern0 = reinterpret_cast<const Point2i*>(bit_pattern_31_);
+    const int ntuples = 256, poolSize = 512;
+    std::mt19937 rng(0x12345678);
+    std::uniform_int_distribution<int> dist(0, poolSize - 1);
+    pattern.resize(ntuples * tupleSize);
+    for (int i = 0; i < ntuples; i++)
+        for (int k = 0; k < tupleSize; k++)
+            for (;;) {
+                Point2i pt = pattern0[dist(rng)];
+                int k1 = 0;
+                for (; k1 < k; k1++)
+                    if (pattern[tupleSize * i + k1] == pt) break;
+                if (k1 == k) { pattern[tupleSize * i + k] = pt; break; }
+            }
+}
+
+void checkAgainstReference256(int wta_k) {
+    const int W = 128, H = 128;
+    Image8U image = makeTexture(W, H, 5);
+    ORB orb(300, 1.2f, 1, 31, 0, wta_k, ORB::HARRIS_SCORE, 31, 20);
+    std::vector<KeyPoint> keypoints;
+    Image8U descriptors;
+    orb.detectAndCompute(image, keypoints, descriptors);
+
+    // One level: the descriptor stage read the blurred level-0 image.
+    Image8U blurred;
+    gaussianBlur7x7(image, blurred);
+    std::vector<Rect> layerInfo = {{0, 0, W, H}};
+    std::vector<float> layerScale = {1.0f};
+    std::vector<Point2i> pattern;
+    referencePattern256(pattern, wta_k);
+    Image8U expected(32, static_cast<int>(keypoints.size()));
+    computeOrbDescriptors(blurred, layerInfo, layerScale, keypoints, expected, pattern, 32, wta_k);
+
+    int identical = 0;
+    for (int r = 0; r < descriptors.rows; ++r) {
+        bool same = true;
+        for (int c = 0; c < 32; ++c) same = same && descriptors.at(r, c) == expected.at(r, c);
+        identical += same;
+    }
+    CHECK(keypoints.size() > 100);
+    CHECK_EQ(identical, descriptors.rows);
+}
+
+} // namespace
+
+// #25: the pipeline generates 128 tuples for wta_k 3 and 4 instead of the 256
+// it used to; the tuples are drawn in order, so the descriptors must equal the
+// ones computed with the old 256-tuple pattern.
+TEST_CASE("ORB::detectAndCompute: wta_k 3 and 4 descriptors equal the 256-tuple reference") {
+    checkAgainstReference256(3);
+    checkAgainstReference256(4);
 }
 
 // A 128 px dot grid with 8 levels has keypoints on the lower levels only (the
