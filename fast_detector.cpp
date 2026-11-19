@@ -11,19 +11,47 @@ const int circle_offsets[16][2] = {
     {-3, 0}, {-3, -1}, {-2, -2}, {-1, -3}
 };
 
-// Calculates the FAST corner score (used for Non-Maximal Suppression)
-// The score is defined as the maximum threshold at which the point would still be a corner
+// FAST corner score, as OpenCV's cornerScore<16>: the largest threshold at
+// which the pixel is still a FAST-9 corner, i.e. (max over the 16 arcs of 9
+// of the arc's minimum contrast) - 1, with both bright and dark arcs
+// considered. Used to rank neighbours in non-maximal suppression (#24).
 inline float cornerScore(const Image8U& img, int x, int y, const int* pixel_offsets, int threshold) {
-    int center_val = img.at(y, x);
-    int score = 0;
+    const uint8_t* ptr = img.ptr(y) + x;
+    const int v = ptr[0];
+    int d[25]; // center minus circle pixel, circle repeated so arcs can wrap
+    for (int k = 0; k < 25; ++k) d[k] = v - ptr[pixel_offsets[k & 15]];
 
-    for (int i = 0; i < 16; ++i) {
-        int diff = std::abs(img.data[(y + circle_offsets[i][1]) * img.step + (x + circle_offsets[i][0])] - center_val);
-        if (diff > threshold) {
-            score += diff - threshold;
-        }
+    // Dark arcs (circle darker than center): d > 0. a0 = best arc minimum.
+    int a0 = threshold;
+    for (int k = 0; k < 16; k += 2) {
+        int a = std::min(d[k + 1], d[k + 2]);
+        a = std::min(a, d[k + 3]);
+        if (a <= a0) continue;
+        a = std::min(a, d[k + 4]);
+        a = std::min(a, d[k + 5]);
+        a = std::min(a, d[k + 6]);
+        a = std::min(a, d[k + 7]);
+        a = std::min(a, d[k + 8]);
+        a0 = std::max(a0, std::min(a, d[k]));
+        a0 = std::max(a0, std::min(a, d[k + 9]));
     }
-    return static_cast<float>(score);
+
+    // Bright arcs (circle brighter than center): d < 0. b0 = best arc maximum.
+    int b0 = -a0;
+    for (int k = 0; k < 16; k += 2) {
+        int b = std::max(d[k + 1], d[k + 2]);
+        b = std::max(b, d[k + 3]);
+        b = std::max(b, d[k + 4]);
+        b = std::max(b, d[k + 5]);
+        if (b >= b0) continue;
+        b = std::max(b, d[k + 6]);
+        b = std::max(b, d[k + 7]);
+        b = std::max(b, d[k + 8]);
+        b0 = std::min(b0, std::max(b, d[k]));
+        b0 = std::min(b0, std::max(b, d[k + 9]));
+    }
+
+    return static_cast<float>(-b0 - 1);
 }
 
 void detectFAST(const Image8U& img, std::vector<KeyPoint>& keypoints, int threshold, bool nonmaxSuppression) {
@@ -54,22 +82,25 @@ void detectFAST(const Image8U& img, std::vector<KeyPoint>& keypoints, int thresh
         for (int x = margin; x < img.cols - margin; ++x) {
             int p = row_ptr[x];
             
-            // Quick test: Check pixels 0, 8, 4, 12
-            // At least 3 of these must be brighter or darker to potentially be a corner
             int lower_threshold = p - threshold;
             int upper_threshold = p + threshold;
-            
-            int p0 = row_ptr[x + offsets[0]];
-            int p8 = row_ptr[x + offsets[8]];
-            int p4 = row_ptr[x + offsets[4]];
-            int p12 = row_ptr[x + offsets[12]];
-            
-            int count_bright = (p0 > upper_threshold) + (p8 > upper_threshold) + 
-                               (p4 > upper_threshold) + (p12 > upper_threshold);
-            int count_dark = (p0 < lower_threshold) + (p8 < lower_threshold) + 
-                             (p4 < lower_threshold) + (p12 < lower_threshold);
 
-            if (count_bright < 3 && count_dark < 3) {
+            // Early rejection, as OpenCV's FAST_t<16>: a 9-pixel arc covers at
+            // least one pixel of every pair of opposite circle pixels (i, i+8),
+            // so if any pair has neither pixel brighter (or neither darker)
+            // there is no bright (dark) arc. Checked pair by pair, cheapest
+            // first. (The previous "3 of the 4 compass pixels" test is the
+            // FAST-12 criterion and dropped about a third of FAST-9 corners, #20.)
+            bool maybe_bright = true, maybe_dark = true;
+            for (int i = 0; i < 8 && (maybe_bright || maybe_dark); ++i) {
+                // order 0, 4, 2, 6, 1, 5, 3, 7: compass pairs first
+                static const int pair_order[8] = {0, 4, 2, 6, 1, 5, 3, 7};
+                const int a = row_ptr[x + offsets[pair_order[i]]];
+                const int b = row_ptr[x + offsets[pair_order[i] + 8]];
+                maybe_bright = maybe_bright && (a > upper_threshold || b > upper_threshold);
+                maybe_dark = maybe_dark && (a < lower_threshold || b < lower_threshold);
+            }
+            if (!maybe_bright && !maybe_dark) {
                 continue; // Reject early
             }
 
@@ -109,10 +140,10 @@ void detectFAST(const Image8U& img, std::vector<KeyPoint>& keypoints, int thresh
         }
     }
 
-    // Non-Maximal Suppression (NMS)
-    // Keeps a corner unless a neighbour in its 3x3 window has a strictly
-    // greater response (ties survive). Corners lie inside the margin, so the
-    // 3x3 window never leaves the grid.
+    // Non-Maximal Suppression (NMS), as OpenCV's FAST_t: a corner survives only
+    // if its response is strictly greater than that of every pixel in its 3x3
+    // window, so two tied neighbours are both dropped (#24). Corners lie inside
+    // the margin, so the window never leaves the grid.
     if (nonmaxSuppression) {
         keypoints.reserve(raw_keypoints.size());
         for (const KeyPoint& kp : raw_keypoints) {
@@ -121,7 +152,10 @@ void detectFAST(const Image8U& img, std::vector<KeyPoint>& keypoints, int thresh
             bool is_max = true;
             for (int dy = -1; dy <= 1 && is_max; ++dy) {
                 const float* row = response_grid.data() + static_cast<size_t>(y + dy) * img.step + x;
-                if (row[-1] > kp.response || row[0] > kp.response || row[1] > kp.response) is_max = false;
+                for (int dx = -1; dx <= 1; ++dx) {
+                    if (dx == 0 && dy == 0) continue;
+                    if (row[dx] >= kp.response) { is_max = false; break; }
+                }
             }
             if (is_max) keypoints.push_back(kp);
         }

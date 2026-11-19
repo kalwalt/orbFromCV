@@ -51,6 +51,28 @@ inline int& test_failure_count() {
 
 #define CHECK_EQ(a, b) CHECK((a) == (b))
 
+// A check that is known to fail until the referenced issue is fixed. A failure
+// is reported but not counted; once the condition holds, the check FAILS with
+// "XPASS" so the expected failure is removed in the fixing PR.
+inline int& test_xfail_count() {
+    static int xfails = 0;
+    return xfails;
+}
+
+#define CHECK_XFAIL(cond, issue)                                             \
+    do {                                                                     \
+        if (cond) {                                                          \
+            std::cerr << "    XPASS: " #cond " now holds; drop CHECK_XFAIL " \
+                      << "(" issue ") (" << __FILE__ << ":" << __LINE__      \
+                      << ")" << std::endl;                                   \
+            ++test_failure_count();                                          \
+        } else {                                                             \
+            std::cerr << "    expected failure (" issue "): " #cond          \
+                      << std::endl;                                          \
+            ++test_xfail_count();                                            \
+        }                                                                    \
+    } while (0)
+
 inline bool approxEqual(double a, double b, double eps = 1e-3) {
     return std::fabs(a - b) <= eps;
 }

@@ -1,0 +1,24 @@
+﻿# Pinned toolchain for scripts/gen-opencv-fixtures.py (issue #32).
+#
+# Developer-side only: CI never installs this. CI asserts against the committed
+# fixtures in tests/fixtures/opencv/ and needs neither Python nor OpenCV.
+#
+# Requires Python >= 3.11 (the numpy pin declares Requires-Python: >=3.11).
+# Install into a gitignored virtualenv in the repository root:
+#   py -3.11 -m venv .venv                                                       (Windows)
+#   .venv\Scripts\python -m pip install -r scripts\requirements-fixtures.txt
+#   python3 -m venv .venv                                                        (Linux/macOS)
+#   .venv/bin/python -m pip install -r scripts/requirements-fixtures.txt
+# Behind a TLS-intercepting proxy add `--use-feature=truststore` to the pip call.
+#
+# The generator parses the opencv-contrib-python pin and refuses to run unless
+# the installed wheel matches it exactly (A.B.C.D, not only cv2.__version__)
+# and no other cv2-providing distribution is installed. Every fixture records
+# the wheel and the "Version control" lines of cv2.getBuildInformation().
+#
+# opencv-contrib-python rather than opencv-python: the same wheel jsfeatNext and
+# purecv measure against (OpenCV 4.10.0), so the whole WebARKit chain compares
+# against one OpenCV build. Bumping it means regenerating every fixture and
+# reviewing the diffs as a change of ground truth.
+opencv-contrib-python==4.10.0.84
+numpy==2.4.6

@@ -7,9 +7,34 @@ project(StandaloneORB VERSION 1.0 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
 
-# Add maximum optimization flags for performance
+# Add maximum optimization flags for performance.
+# -ffp-contract=off: the Gaussian blur reproduces OpenCV's float arithmetic
+# bit for bit (issue #39), which needs a*b + c to stay two roundings; GCC
+# fuses it into an FMA on targets that have one (e.g. -march=x86-64-v3),
+# even across an explicit cast, and that moves rounding-tie pixels by one.
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -Wall -Wextra")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -Wall -Wextra -ffp-contract=off")
+endif()
+
+# Build every target with AddressSanitizer + UndefinedBehaviorSanitizer.
+# Off by default; CI runs the test suite with it on (see .github/workflows/ci.yml).
+option(ORB_SANITIZE "Build with AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
+
+if(ORB_SANITIZE)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+        add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=all)
+        # Linker flag variables rather than add_link_options(), which needs CMake 3.13.
+        set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fsanitize=address,undefined")
+        set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -fsanitize=address,undefined")
+    elseif(MSVC)
+        # MSVC has ASan only (no UBSan); it is incompatible with /RTC1 in Debug.
+        # To run the binaries, the ASan runtime directory must be on PATH, e.g.
+        # <VS>/VC/Tools/MSVC/<ver>/bin/Hostx64/x64 (otherwise exit code 0xc0000135).
+        add_compile_options(/fsanitize=address)
+        string(REGEX REPLACE "/RTC(su|[1su])" "" CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG}")
+    else()
+        message(WARNING "ORB_SANITIZE is not supported for ${CMAKE_CXX_COMPILER_ID}; ignoring")
+    endif()
 endif()
 
 # Core algorithm sources, shared by the CLI executable and the test suite

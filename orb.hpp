@@ -21,6 +21,20 @@ class ORB {
 public:
     enum ScoreType { HARRIS_SCORE = 0, FAST_SCORE = 1 };
 
+    // nfeatures: at most this many keypoints, as in OpenCV: per level the best
+    // 2 * n by FAST score are kept for Harris scoring and then the best n by
+    // Harris; points tied with the n-th response are kept too, so the total
+    // can exceed nfeatures on images with many identical corners.
+    // edgeThreshold: keypoints closer than this to a level's border are dropped.
+    // Unlike OpenCV, pyramid levels are not padded, so the effective border is
+    // at least max(ceil(patchSize / 2 * sqrt(2)), 19): the reach of the
+    // orientation patch and of the fixed 31 px BRIEF pattern. With the default
+    // patchSize values below 22 behave as 22.
+    // firstLevel: only 0 is supported (level 0 is always the input image at
+    // scale 1); OpenCV's upscaled levels below the input are not implemented.
+    // Throws std::invalid_argument for nfeatures < 0, scaleFactor <= 1,
+    // nlevels < 1, edgeThreshold < 0, firstLevel != 0, wta_k not in {2, 3, 4},
+    // an unknown scoreType, patchSize <= 0 or fastThreshold <= 0.
     ORB(int nfeatures = 500, float scaleFactor = 1.2f, int nlevels = 8,
         int edgeThreshold = 31, int firstLevel = 0, int wta_k = 2,
         ScoreType scoreType = HARRIS_SCORE, int patchSize = 31, int fastThreshold = 20);

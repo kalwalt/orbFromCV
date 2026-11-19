@@ -1,0 +1,5 @@
+# OpenCV ground-truth fixtures (tests/fixtures/opencv/): never touch their bytes.
+*.pgm binary
+*.bin binary
+# The generated header is written with LF by scripts/gen-opencv-fixtures.py.
+tests/fixtures/opencv/opencv_ref.hpp text eol=lf
