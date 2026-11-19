@@ -236,9 +236,9 @@ Branch `kalwalt/feat/cmake-package-and-image-view`. Version set to `0.2.0`
 - [x] `tests/consumer/` external project; CI installs to a prefix and builds/runs it on Linux and Windows.
 - [x] `main.cpp` and `profile_orb` wrap the `stbi_load` buffer in a view.
 
-### Task 12: SIMD and multithreading (#19) — write its own plan
+### Task 12: SIMD and multithreading (#19) — plan written
 
-Prerequisites merged: Tasks 6, 9, 10, 11. Then brainstorm and write `docs/superpowers/plans/<date>-simd-and-threads.md` with four sub-PRs (blur SIMD, resize SIMD, FAST SIMD, `std::thread` row bands with deterministic merge), the `ORB_ENABLE_SIMD` option, byte-for-byte scalar-vs-SIMD tests, and a CI matrix with SIMD on/off plus a `-fsanitize=thread` job.
+Prerequisites (Tasks 6, 9, 10, 11) merged. The plan is `docs/superpowers/plans/2026-11-19-simd-and-threads.md`: five PRs (`ORB_ENABLE_SIMD` + `-msimd128` + CI matrix, blur SIMD, resize SIMD, FAST SIMD, `std::thread` row bands with ordered merge), byte-for-byte scalar-vs-vector and 1-vs-N-thread tests, a `tsan` job. This task is done when that plan's Task 5 is merged.
 
 ---
 
