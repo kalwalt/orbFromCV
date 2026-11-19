@@ -29,13 +29,8 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    Image8U image(width, height);
-    for (int y = 0; y < height; ++y) {
-        for (int x = 0; x < width; ++x) {
-            image.at(y, x) = imgData[y * width + x];
-        }
-    }
-    stbi_image_free(imgData);
+    // Non-owning view of the stb_image buffer; freed after the last run.
+    ImageView8U image(imgData, width, height);
 
     std::cout << "Image: " << imagePath << " (" << width << "x" << height << ")\n";
 
@@ -84,5 +79,6 @@ int main(int argc, char** argv) {
                   << std::setw(10) << meanMs << " ms  (" << std::setw(5) << pct << "%)\n";
     }
 
+    stbi_image_free(imgData);
     return 0;
 }

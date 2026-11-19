@@ -27,16 +27,9 @@ int main(int argc, char** argv) {
 
     std::cout << "Image loaded: " << width << "x" << height << " pixels." << std::endl;
 
-    // 2. Conversion to our Image8U format
-    Image8U grayImage(width, height);
-    for (int y = 0; y < height; ++y) {
-        for (int x = 0; x < width; ++x) {
-            grayImage.at(y, x) = img_data[y * width + x];
-        }
-    }
-
-    // Free stb_image memory, we don't need it anymore
-    stbi_image_free(img_data);
+    // 2. Wrap the stb_image buffer in a non-owning view: ORB reads it in
+    // place, so no copy is needed (the buffer stays alive until step 5).
+    ImageView8U grayImage(img_data, width, height);
 
     // 3. ORB initialization
     // Default parameters: 500 keypoints, scaleFactor 1.2, 8 levels
@@ -49,6 +42,7 @@ int main(int argc, char** argv) {
 
     // 4. Run the algorithm
     orb.detectAndCompute(grayImage, keypoints, descriptors);
+    stbi_image_free(img_data);
 
     // 5. Print the results
     std::cout << "Extraction complete." << std::endl;

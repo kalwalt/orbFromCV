@@ -620,3 +620,87 @@ TEST_CASE("ORB::detectAndCompute: levels without keypoints do not change the out
     CHECK(maxOctave >= 0 && maxOctave < 7); // at least one level has none
     checkDigest(image, 2, 8, 1162776104059584058ull);
 }
+
+// ---------------------------------------------------------------------------
+// Non-owning input view (issue #28)
+// ---------------------------------------------------------------------------
+
+namespace {
+
+bool sameOutput(const std::vector<KeyPoint>& ka, const Image8U& da,
+                const std::vector<KeyPoint>& kb, const Image8U& db) {
+    if (ka.size() != kb.size() || da.rows != db.rows || da.cols != db.cols) return false;
+    for (size_t i = 0; i < ka.size(); ++i)
+        if (ka[i].pt.x != kb[i].pt.x || ka[i].pt.y != kb[i].pt.y || ka[i].angle != kb[i].angle ||
+            ka[i].response != kb[i].response || ka[i].octave != kb[i].octave)
+            return false;
+    for (int r = 0; r < da.rows; ++r)
+        for (int c = 0; c < da.cols; ++c)
+            if (da.at(r, c) != db.at(r, c)) return false;
+    return true;
+}
+
+} // namespace
+
+TEST_CASE("ORB::detectAndCompute: a padded-stride view gives the Image8U result and leaves the buffer untouched") {
+    const int W = 128, H = 96, STEP = 160;
+    Image8U image = makeTexture(W, H, 11);
+
+    // Copy into a buffer with padded rows; the padding holds garbage, so a
+    // reader that strides by cols instead of step produces different output.
+    std::vector<uint8_t> buffer(static_cast<size_t>(STEP) * H);
+    uint32_t seed = 99;
+    for (auto& v : buffer) { seed = seed * 1664525u + 1013904223u; v = static_cast<uint8_t>(seed >> 24); }
+    for (int y = 0; y < H; ++y) std::memcpy(&buffer[static_cast<size_t>(y) * STEP], image.ptr(y), W);
+    const std::vector<uint8_t> before = buffer;
+
+    ORB orb(300, 1.2f, 4, 31, 0, 2, ORB::HARRIS_SCORE, 31, 20);
+    std::vector<KeyPoint> kOwned, kView;
+    Image8U dOwned, dView;
+    orb.detectAndCompute(image, kOwned, dOwned);
+    orb.detectAndCompute(ImageView8U(buffer.data(), W, H, STEP), kView, dView);
+
+    CHECK(kOwned.size() > 50);
+    CHECK(sameOutput(kOwned, dOwned, kView, dView));
+    CHECK(buffer == before); // level 0 is read through the view, never blurred in place
+}
+
+TEST_CASE("ORB::detectAndCompute: a sub-image view equals the cropped Image8U") {
+    const int W = 200, H = 150, X0 = 37, Y0 = 21, CW = 128, CH = 96;
+    Image8U big = makeTexture(W, H, 3);
+    Image8U crop(CW, CH);
+    for (int y = 0; y < CH; ++y) std::memcpy(crop.ptr(y), big.ptr(Y0 + y) + X0, CW);
+
+    ORB orb(300, 1.2f, 4, 31, 0, 2, ORB::HARRIS_SCORE, 31, 20);
+    std::vector<KeyPoint> kCrop, kView;
+    Image8U dCrop, dView;
+    orb.detectAndCompute(crop, kCrop, dCrop);
+    orb.detectAndCompute(ImageView8U(big.ptr(Y0) + X0, CW, CH, big.step), kView, dView);
+
+    CHECK(kCrop.size() > 50);
+    CHECK(sameOutput(kCrop, dCrop, kView, dView));
+}
+
+TEST_CASE("ORB::detectAndCompute: an empty view clears the outputs, a malformed one throws") {
+    Image8U image = makeDotGrid(128, 30, 220);
+    ORB orb;
+    std::vector<KeyPoint> keypoints;
+    Image8U descriptors;
+    orb.detectAndCompute(image, keypoints, descriptors);
+    CHECK(!keypoints.empty());
+
+    orb.detectAndCompute(ImageView8U(nullptr, 0, 0), keypoints, descriptors);
+    CHECK(keypoints.empty());
+    CHECK_EQ(descriptors.rows, 0);
+
+    uint8_t px[16] = {0};
+    auto throws = [&](const ImageView8U& v) {
+        try { orb.detectAndCompute(v, keypoints, descriptors); } catch (const std::invalid_argument&) { return true; }
+        return false;
+    };
+    CHECK(throws(ImageView8U(nullptr, 4, 4)));       // null data, non-zero size
+    CHECK(throws(ImageView8U(px, 4, 4, 2)));         // step < cols
+    CHECK(throws(ImageView8U(px, -4, 4)));           // negative size
+    CHECK(!throws(ImageView8U(px, 4, 4)));           // too small for any keypoint, but valid
+    CHECK(keypoints.empty());
+}
