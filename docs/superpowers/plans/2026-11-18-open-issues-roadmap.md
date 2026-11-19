@@ -216,17 +216,14 @@ earlier through PR #47 (#40), so Task 9 is folded in here.
 - [x] `detectAndCompute` skips `gaussianBlur7x7` on levels without keypoints; the pyramid is built from the unblurred levels, so nothing else reads the blurred image.
 - [x] Suite 67/67 and ASan/UBSan clean with the digests unchanged. Commit `refactor(orb): drop the dead pattern copy, generate 128 tuples, skip the blur on empty levels`, `Fixes #25`.
 
-### Task 10: WebAssembly build and CI job (#27)
+### Task 10: WebAssembly build and CI job (#27) — done
 
-**Files:**
-- Modify: `.github/workflows/ci.yml` (job `wasm`), `README.md` ("Building for WebAssembly"), `orb.cpp` (`size_t`→`int` casts flagged by MSVC C4267)
-- Branch: `kalwalt/ci/wasm-build`
+Branch `kalwalt/ci/wasm-build`.
 
-- [ ] **Step 1: Add job `wasm`** using `mymindstorm/setup-emsdk@v14`: `emcmake cmake -B build-wasm -DCMAKE_BUILD_TYPE=Release`, `cmake --build build-wasm --target orb_tests`, `node build-wasm/tests/orb_tests.js`.
-- [ ] **Step 2: Fix** any wasm32 compile errors/warnings (`size_t` conversions).
-- [ ] **Step 3: Verify** the job is green in the PR.
-- [ ] **Step 4: Document** the build in README.
-- [ ] **Step 5: Commit** `ci: build and run the test suite for wasm32 with Emscripten` with `Fixes #27`. PR into `dev`.
+- [x] `if(EMSCRIPTEN)` block in `CMakeLists.txt`: `-fexceptions` (constructor throws, tests catch), link `-sNODERAWFS=1 -sALLOW_MEMORY_GROWTH=1 -sEXIT_RUNTIME=1`. No toolchain file in the repo: the Emscripten one registers node as the ctest emulator.
+- [x] CI job `wasm` (`mymindstorm/setup-emsdk@v14`, emsdk 4.0.19 as on the maintainer's machine): `emcmake cmake` Release, build, `ctest`, `orb_test.js` on `pinball.jpg`.
+- [x] `size_t` → `int` casts in `orb.cpp` for the two `Image8U` constructions (MSVC C4267).
+- [x] README "Building for WebAssembly".
 
 ### Task 11: CMake install/export and `ImageView8U` (#28) — done
 

@@ -70,3 +70,28 @@ jobs:
 
       - name: Test
         run: ctest --test-dir build --output-on-failure
+
+  # wasm32 build with Emscripten; the whole test suite runs under node
+  # through ctest (the toolchain registers node as the emulator) (#27).
+  wasm:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: 4.0.19
+          actions-cache-folder: emsdk-cache
+
+      - name: Configure
+        run: emcmake cmake -S . -B build-wasm -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build-wasm
+
+      - name: Test
+        run: ctest --test-dir build-wasm --output-on-failure
+
+      - name: Run orb_test on the sample image
+        run: node build-wasm/orb_test.js pinball.jpg

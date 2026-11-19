@@ -295,7 +295,7 @@ void ORB::detectAndCompute(const ImageView8U& image, std::vector<KeyPoint>& keyp
     double blurMs = 0.0;
     double descriptorsMs = 0.0;
     int dsize = 32; // 32 bytes = 256 bits
-    descriptors = Image8U(dsize, allKeypoints.size());
+    descriptors = Image8U(dsize, static_cast<int>(allKeypoints.size()));
 
     for (int level = 0; level < nlevels; ++level) {
         std::vector<KeyPoint> levelKpts;
@@ -323,7 +323,7 @@ void ORB::detectAndCompute(const ImageView8U& image, std::vector<KeyPoint>& keyp
 
         {
             ScopedAccumulator timer(&descriptorsMs);
-            Image8U levelDescriptors(dsize, levelKpts.size());
+            Image8U levelDescriptors(dsize, static_cast<int>(levelKpts.size()));
             computeOrbDescriptors(imagePyramid[level], layerInfo, layerScale, levelKpts, levelDescriptors, pattern, dsize, wta_k);
 
             // Copy back to main descriptor matrix

@@ -1,7 +1,6 @@
 #include "orb_core.hpp"
 #include <cmath>
 
-const float HARRIS_K = 0.04f;
 const float ORB_PI = 3.14159265358979323846f;
 
 // Helper to replace OpenCV's cvRound: round to nearest, halves to even.
