@@ -30,6 +30,11 @@ public:
     // at least max(ceil(patchSize / 2 * sqrt(2)), 19): the reach of the
     // orientation patch and of the fixed 31 px BRIEF pattern. With the default
     // patchSize values below 22 behave as 22.
+    // firstLevel: only 0 is supported (level 0 is always the input image at
+    // scale 1); OpenCV's upscaled levels below the input are not implemented.
+    // Throws std::invalid_argument for nfeatures < 0, scaleFactor <= 1,
+    // nlevels < 1, edgeThreshold < 0, firstLevel != 0, wta_k not in {2, 3, 4},
+    // an unknown scoreType, patchSize <= 0 or fastThreshold <= 0.
     ORB(int nfeatures = 500, float scaleFactor = 1.2f, int nlevels = 8,
         int edgeThreshold = 31, int firstLevel = 0, int wta_k = 2,
         ScoreType scoreType = HARRIS_SCORE, int patchSize = 31, int fastThreshold = 20);
