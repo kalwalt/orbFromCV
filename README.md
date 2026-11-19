@@ -49,6 +49,19 @@ cmake --build .
 
 This builds the `orb_test` CLI, the `profile_orb` diagnostic tool, and the `orb_tests` test suite — none of which require OpenCV.
 
+### Building for WebAssembly
+
+With the [Emscripten SDK](https://emscripten.org/docs/getting_started/downloads.html) activated (`emcc` on `PATH`), the same CMake project builds for wasm32; CI does this on every push (job `wasm`, emsdk 4.0.19) and runs the full test suite under Node.js:
+
+```bash
+emcmake cmake -S . -B build-wasm -DCMAKE_BUILD_TYPE=Release
+cmake --build build-wasm
+ctest --test-dir build-wasm --output-on-failure   # runs orb_tests.js under node
+node build-wasm/orb_test.js <path_to_image>
+```
+
+Executables come out as `.js` + `.wasm` pairs. The build enables C++ exceptions (the constructor throws on bad parameters), memory growth, and `NODERAWFS` so the programs read the host file system; a browser build would drop `NODERAWFS` and wrap `detectAndCompute` with embind, which is a follow-up to [issue #27](https://github.com/kalwalt/orbFromCV/issues/27). In the pipeline the `ImageView8U` input maps directly onto a `Uint8Array` in WASM memory, with no copy.
+
 ### Using the library from another project
 
 The library is exported as the CMake target `StandaloneORB::orb` (CMake >= 3.11). Either install it and `find_package` it:
@@ -182,7 +195,7 @@ against an installed OpenCV on arbitrary images.
 - **Performance**: this is still a single-threaded, scalar (non-SIMD) implementation, and noticeably slower than OpenCV's SIMD/IPP/multi-threaded build as a result. A SIMD variant is planned ([issue #19](https://github.com/kalwalt/orbFromCV/issues/19)).
 - **Orientation angle**: `std::atan2` instead of `fastAtan2` ([issue #49](https://github.com/kalwalt/orbFromCV/issues/49)); descriptors can differ from OpenCV's by a few bits at some keypoints.
 - **`firstLevel`**: only 0 is supported; OpenCV's upscaled levels below the input are not implemented.
-- WebAssembly build and CI job ([issue #27](https://github.com/kalwalt/orbFromCV/issues/27)) is planned for v0.2.0.
+- WebAssembly: the library and the test suite build and run for wasm32 in CI ([issue #27](https://github.com/kalwalt/orbFromCV/issues/27)); a JS/embind wrapper and WASM SIMD are follow-ups (see [issue #19](https://github.com/kalwalt/orbFromCV/issues/19)).
 
 Track ongoing work via the [issue tracker](https://github.com/kalwalt/orbFromCV/issues). Contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md).
 

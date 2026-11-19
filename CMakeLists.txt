@@ -27,6 +27,19 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -Wall -Wextra")
 endif()
 
+# WebAssembly via Emscripten (`emcmake cmake ...`, issue #27). The toolchain
+# file sets EMSCRIPTEN, makes executables .js + .wasm and registers node as
+# the CMAKE_CROSSCOMPILING_EMULATOR, so ctest runs the suite under node.
+# - -fexceptions: the constructor throws std::invalid_argument and the tests
+#   catch it; Emscripten disables exception catching by default.
+# - NODERAWFS: executables read the real file system (fixtures, images).
+# - ALLOW_MEMORY_GROWTH: the 1637x2048 sample image needs more than the
+#   16 MB initial heap. EXIT_RUNTIME: main()'s return value is the exit code.
+if(EMSCRIPTEN)
+    add_compile_options(-fexceptions)
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fexceptions -sNODERAWFS=1 -sALLOW_MEMORY_GROWTH=1 -sEXIT_RUNTIME=1")
+endif()
+
 # Build every target with AddressSanitizer + UndefinedBehaviorSanitizer.
 # Off by default; CI runs the test suite with it on (see .github/workflows/ci.yml).
 option(ORB_SANITIZE "Build with AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
