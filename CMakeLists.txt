@@ -16,6 +16,9 @@ endif()
 option(ORB_BUILD_TOOLS "Build orb_test and profile_orb" ${ORB_IS_TOP_LEVEL})
 option(ORB_BUILD_TESTS "Build the orb_tests suite" ${ORB_IS_TOP_LEVEL})
 option(ORB_INSTALL "Generate install rules and the StandaloneORB CMake package" ${ORB_IS_TOP_LEVEL})
+# SSE2/NEON/WASM SIMD128 kernels (issue #19). Every kernel keeps its scalar
+# path and both produce the same bytes; OFF is for measuring and debugging.
+option(ORB_ENABLE_SIMD "Use SSE2/NEON/WASM SIMD128 kernels" ON)
 
 # Require C++14 standard or higher
 set(CMAKE_CXX_STANDARD 14)
@@ -76,6 +79,7 @@ set(HEADERS
     image_utils.hpp
     orb_pattern.hpp
     orb.hpp
+    simd_utils.hpp
     stb_image.h
 )
 
@@ -96,6 +100,13 @@ target_include_directories(orb_lib PUBLIC
 # On the target, not in CMAKE_CXX_FLAGS, so a subproject build keeps it.
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
     target_compile_options(orb_lib PRIVATE -ffp-contract=off)
+endif()
+
+# simd_utils.hpp reads ORB_ENABLE_SIMD and picks the target from the compiler's
+# own macros; wasm32 needs -msimd128 before __wasm_simd128__ is defined.
+target_compile_definitions(orb_lib PRIVATE ORB_ENABLE_SIMD=$<BOOL:${ORB_ENABLE_SIMD}>)
+if(EMSCRIPTEN AND ORB_ENABLE_SIMD)
+    target_compile_options(orb_lib PRIVATE -msimd128)
 endif()
 
 if(ORB_BUILD_TOOLS)

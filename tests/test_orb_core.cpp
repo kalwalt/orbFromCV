@@ -196,3 +196,16 @@ TEST_CASE("computeOrbDescriptors: wta_k 3 and 4 run without crashing") {
     CHECK_EQ(desc3.cols, 1);
     CHECK_EQ(desc4.cols, 1);
 }
+
+// ---------------------------------------------------------------------------
+// orbSimdActive
+// ---------------------------------------------------------------------------
+
+TEST_CASE("orbSimdActive: every CI build with ORB_ENABLE_SIMD=ON has a vector path") {
+    // The test binary gets ORB_TEST_EXPECT_SIMD from tests/CMakeLists.txt (= the option).
+#if ORB_TEST_EXPECT_SIMD
+    CHECK(orbSimdActive());
+#else
+    CHECK(!orbSimdActive());
+#endif
+}

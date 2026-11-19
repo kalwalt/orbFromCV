@@ -57,7 +57,7 @@ The blur is float32 in OpenCV's evaluation order (#39), not the 16-bit integer k
 **Interfaces:**
 - Produces: `bool orbSimdActive();` declared in `orb_core.hpp`: true when the library was built with `ORB_ENABLE_SIMD` and a vector target is compiled in. `simd_utils.hpp` defines `ORB_SIMD_SSE2`, `ORB_SIMD_NEON`, `ORB_SIMD_WASM` (each 0/1) and `ORB_SIMD` (1 if any is 1 and `ORB_ENABLE_SIMD` is 1). CMake defines `ORB_ENABLE_SIMD=0|1` PRIVATE on `orb_lib`; with the option ON under Emscripten `orb_lib` gets `-msimd128` PRIVATE.
 
-- [ ] **Step 1: Write the failing test** in `tests/test_orb_core.cpp`:
+- [x] **Step 1: Write the failing test** in `tests/test_orb_core.cpp`:
 
 ```cpp
 TEST_CASE("orbSimdActive: every CI build with ORB_ENABLE_SIMD=ON has a vector path") {
@@ -70,9 +70,9 @@ TEST_CASE("orbSimdActive: every CI build with ORB_ENABLE_SIMD=ON has a vector pa
 }
 ```
 
-- [ ] **Step 2: Run the suite to verify it fails to compile** (`orbSimdActive` undeclared).
+- [x] **Step 2: Run the suite to verify it fails to compile** (`orbSimdActive` undeclared).
 
-- [ ] **Step 3: Implement.** `CMakeLists.txt`: `option(ORB_ENABLE_SIMD "Use SSE2/NEON/WASM SIMD128 kernels" ON)`; `target_compile_definitions(orb_lib PRIVATE ORB_ENABLE_SIMD=$<BOOL:${ORB_ENABLE_SIMD}>)`; inside `if(EMSCRIPTEN)`: `if(ORB_ENABLE_SIMD) target_compile_options(orb_lib PRIVATE -msimd128) endif()` (after `add_library`). `tests/CMakeLists.txt`: `ORB_TEST_EXPECT_SIMD=$<BOOL:${ORB_ENABLE_SIMD}>`. `simd_utils.hpp`:
+- [x] **Step 3: Implement.** `CMakeLists.txt`: `option(ORB_ENABLE_SIMD "Use SSE2/NEON/WASM SIMD128 kernels" ON)`; `target_compile_definitions(orb_lib PRIVATE ORB_ENABLE_SIMD=$<BOOL:${ORB_ENABLE_SIMD}>)`; inside `if(EMSCRIPTEN)`: `if(ORB_ENABLE_SIMD) target_compile_options(orb_lib PRIVATE -msimd128) endif()` (after `add_library`). `tests/CMakeLists.txt`: `ORB_TEST_EXPECT_SIMD=$<BOOL:${ORB_ENABLE_SIMD}>`. `simd_utils.hpp`:
 
 ```cpp
 #define ORB_SIMD_SSE2 (defined(__SSE2__) || defined(_M_X64) || (defined(_M_IX86_FP) && _M_IX86_FP >= 2))
@@ -83,13 +83,13 @@ TEST_CASE("orbSimdActive: every CI build with ORB_ENABLE_SIMD=ON has a vector pa
 
 (write the `defined()` tests as `#if` blocks setting each macro to 0/1, since `defined` inside a macro body is undefined behaviour; this is the rule, not the code). `orbSimdActive()` returns `ORB_SIMD != 0`. MSVC on x64 has no `__SSE2__`, which is why `_M_X64` is listed.
 
-- [ ] **Step 4: Run the suite** on the local build (SIMD on): PASS. Configure a second build with `-DORB_ENABLE_SIMD=OFF`: PASS, and the `.wasm` built with `-DORB_ENABLE_SIMD=OFF` must not contain SIMD opcodes (`wasm-objdump -d build-wasm-off/orb_test.wasm | grep -c v128` prints 0, with `wasm-objdump` from emsdk's binaryen or wabt).
+- [x] **Step 4: Run the suite** on the local build (SIMD on): PASS. Configure a second build with `-DORB_ENABLE_SIMD=OFF`: PASS, and the `.wasm` built with `-DORB_ENABLE_SIMD=OFF` must not contain SIMD opcodes (`wasm-objdump -d build-wasm-off/orb_test.wasm | grep -c v128` prints 0, with `wasm-objdump` from emsdk's binaryen or wabt).
 
-- [ ] **Step 5: CI.** `build-and-test` matrix becomes `os: [ubuntu-latest, ubuntu-24.04-arm, windows-latest]` × `simd: [ON, OFF]` with `-DORB_ENABLE_SIMD=${{ matrix.simd }}` on the configure line; the consumer steps run as today. `sanitizers` stays x86-64 with SIMD ON. `wasm` job: add a second configure/build/test with `-DORB_ENABLE_SIMD=OFF` into `build-wasm-off`. If the `ubuntu-24.04-arm` label is refused for this repository, drop NEON from the plan: remove `ORB_SIMD_NEON` and say so in the PR.
+- [x] **Step 5: CI.** `build-and-test` matrix becomes `os: [ubuntu-latest, ubuntu-24.04-arm, windows-latest]` × `simd: [ON, OFF]` with `-DORB_ENABLE_SIMD=${{ matrix.simd }}` on the configure line; the consumer steps run as today. `sanitizers` stays x86-64 with SIMD ON. `wasm` job: add a second configure/build/test with `-DORB_ENABLE_SIMD=OFF` into `build-wasm-off`. If the `ubuntu-24.04-arm` label is refused for this repository, drop NEON from the plan: remove `ORB_SIMD_NEON` and say so in the PR.
 
-- [ ] **Step 6: Measure** `profile_orb` native and wasm32 with the option ON and OFF; the wasm ON column must match the `-msimd128` baseline above within noise.
+- [x] **Step 6: Measure** `profile_orb` native and wasm32 with the option ON and OFF; the wasm ON column must match the `-msimd128` baseline above within noise.
 
-- [ ] **Step 7: Docs and commit.** README "Building" gets the option; AGENTS.md Build section gets the option and "MSVC needs `_M_X64`, not `__SSE2__`". Mark Task 1 done here.
+- [x] **Step 7: Docs and commit.** README "Building" gets the option; AGENTS.md Build section gets the option and "MSVC needs `_M_X64`, not `__SSE2__`". Mark Task 1 done here.
 
 ```bash
 git commit -m "build: ORB_ENABLE_SIMD option, -msimd128 for wasm32, arm64 and SIMD-off CI matrix"

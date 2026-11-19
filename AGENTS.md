@@ -37,6 +37,14 @@ ctest --test-dir build -C Debug --output-on-failure
   MSVC, so `wta_k` 3/4 descriptors do too. Never pin descriptor bytes or digests
   on textures across platforms; the symmetric dot grid in `test_orb.cpp` is
   stable, or compare two computations made by the same binary.
+- SIMD: `ORB_ENABLE_SIMD` (default ON) becomes a PRIVATE define on `orb_lib`;
+  `simd_utils.hpp` turns it plus the compiler's target macros into
+  `ORB_SIMD_SSE2` / `ORB_SIMD_NEON` / `ORB_SIMD_WASM` and `ORB_SIMD`. MSVC
+  never defines `__SSE2__`, so x64 is detected with `_M_X64`. Under Emscripten
+  the option adds `-msimd128` to `orb_lib`. Every vector kernel keeps its
+  scalar twin and both must give identical bytes; CI builds every platform
+  with the option ON and OFF. `orbSimdActive()` tells which path a build runs.
+  Kernels arrive one PR per task of `docs/superpowers/plans/2026-11-19-simd-and-threads.md`.
 - Sanitizers: `cmake -DORB_SANITIZE=ON` (clang/gcc ASan+UBSan, MSVC ASan; CI job
   `sanitizers`). UBSan flags casting an out-of-range int to `ORB::ScoreType`,
   so don't test "unknown scoreType" that way.
