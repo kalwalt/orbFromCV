@@ -228,22 +228,16 @@ earlier through PR #47 (#40), so Task 9 is folded in here.
 - [ ] **Step 4: Document** the build in README.
 - [ ] **Step 5: Commit** `ci: build and run the test suite for wasm32 with Emscripten` with `Fixes #27`. PR into `dev`.
 
-### Task 11: CMake install/export and `ImageView8U` (#28)
+### Task 11: CMake install/export and `ImageView8U` (#28) — done
 
-**Files:**
-- Modify: `CMakeLists.txt` (version `0.1.2`, `ORB_BUILD_TOOLS`/`ORB_BUILD_TESTS`, namespaced target `StandaloneORB::orb`, `install(...)`, `CMakePackageConfigHelpers`)
-- Create: `cmake/StandaloneORBConfig.cmake.in`
-- Modify: `orb_core.hpp` (add `struct ImageView8U { const uint8_t* data; int cols, rows, step; }`), `orb.hpp`/`orb.cpp` (overload `detectAndCompute(const ImageView8U&, ...)`; the `Image8U` overload forwards to it), `main.cpp:31-35`
-- Test: `tests/test_orb.cpp`; CI step with a minimal external project under `tests/consumer/`
-- Branch: `kalwalt/feat/cmake-package-and-image-view`
+Branch `kalwalt/feat/cmake-package-and-image-view`. Version set to `0.2.0`
+(the upcoming tag, not `0.1.2` as decided above: v0.1.3 shipped meanwhile).
 
-- [ ] **Step 1: Write failing test** `detectAndCompute: a padded-stride view gives identical results to the Image8U path` — copy a 128x96 image into a buffer with `step = 160`, compare keypoints and descriptor bytes exactly.
-- [ ] **Step 2: Implement** the view and the overload; level 0 reads from the view (stride-aware) instead of copying.
-- [ ] **Step 3: Run** → PASS; full suite green.
-- [ ] **Step 4: Packaging**: options, namespaced alias, `install(TARGETS orb_lib EXPORT ...)`, headers, config + version file.
-- [ ] **Step 5: Add CI step** `consumer`: install to a prefix, configure `tests/consumer/CMakeLists.txt` with `find_package(StandaloneORB REQUIRED)` and `CMAKE_PREFIX_PATH`, build and run.
-- [ ] **Step 6: `main.cpp`** builds the input directly from the `stbi_load` buffer.
-- [ ] **Step 7: Commit** `feat(build): install/export a StandaloneORB package and accept a non-owning image view` with `Fixes #28`. PR into `dev`.
+- [x] `ImageView8U` (pointer, cols, rows, step) in `orb_core.hpp`; `Image8U` converts implicitly; every read-only image parameter (`detectFAST`, `HarrisResponses`, `ICAngles`, `computeOrbDescriptors`, `resizeBilinear`, `gaussianBlur7x7`) takes the view. `detectAndCompute` reads level 0 through the view and blurs it into an owned image, so the caller's buffer is never written; empty view clears outputs, malformed view throws `std::invalid_argument`. FAST's response grid is sized by `cols`, not `step`.
+- [x] Tests: padded stride (`step` 160 for 128 px, garbage in the padding) gives the `Image8U` result and leaves the buffer untouched; a sub-image view equals the cropped `Image8U`; empty/malformed views.
+- [x] Packaging: `StandaloneORB::orb` alias, `EXPORT_NAME orb`, `-ffp-contract=off` on the target, `ORB_BUILD_TOOLS`/`ORB_BUILD_TESTS`/`ORB_INSTALL` (top-level only), install of lib + headers to `include/StandaloneORB/`, `StandaloneORBConfig.cmake` + version file (`SameMinorVersion`, CMake >= 3.11).
+- [x] `tests/consumer/` external project; CI installs to a prefix and builds/runs it on Linux and Windows.
+- [x] `main.cpp` and `profile_orb` wrap the `stbi_load` buffer in a view.
 
 ### Task 12: SIMD and multithreading (#19) — write its own plan
 
