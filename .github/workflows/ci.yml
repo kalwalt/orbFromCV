@@ -17,8 +17,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Explicit build type: on single-config generators an install with
+      # --config Debug only emits the per-config export file if the build was
+      # configured for Debug (otherwise find_package sees no IMPORTED_LOCATION).
       - name: Configure
-        run: cmake -S . -B build
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
 
       - name: Build
         run: cmake --build build --config Debug
@@ -33,7 +36,7 @@ jobs:
         run: cmake --install build --config Debug --prefix ${{ github.workspace }}/prefix
 
       - name: Configure consumer
-        run: cmake -S tests/consumer -B build-consumer -DCMAKE_PREFIX_PATH=${{ github.workspace }}/prefix
+        run: cmake -S tests/consumer -B build-consumer -DCMAKE_BUILD_TYPE=Debug -DCMAKE_PREFIX_PATH=${{ github.workspace }}/prefix
 
       - name: Build consumer
         run: cmake --build build-consumer --config Debug
