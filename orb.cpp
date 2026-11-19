@@ -4,6 +4,7 @@
 #include "orb_pattern.hpp" // Contains bit_pattern_31_
 #include <chrono>
 #include <cmath>
+#include <stdexcept>
 #include <algorithm>
 #include <random> // Required for initializeOrbPattern
 
@@ -87,8 +88,24 @@ ORB::ORB(int nfeatures, float scaleFactor, int nlevels, int edgeThreshold,
          int firstLevel, int wta_k, ScoreType scoreType, int patchSize, int fastThreshold)
     : nfeatures(nfeatures), scaleFactor(scaleFactor), nlevels(nlevels),
       edgeThreshold(edgeThreshold), firstLevel(firstLevel), wta_k(wta_k),
-      scoreType(scoreType), patchSize(patchSize), fastThreshold(fastThreshold) 
-{}
+      scoreType(scoreType), patchSize(patchSize), fastThreshold(fastThreshold)
+{
+    // Reject unsupported parameters here, before any detection work, instead
+    // of discovering them after the pyramid, FAST and Harris have run (#22,
+    // #23). OpenCV asserts wta_k the same way in detectAndCompute.
+    if (nfeatures < 0) throw std::invalid_argument("ORB: nfeatures must be >= 0");
+    if (!(scaleFactor > 1.0f)) throw std::invalid_argument("ORB: scaleFactor must be > 1");
+    if (nlevels < 1) throw std::invalid_argument("ORB: nlevels must be >= 1");
+    if (edgeThreshold < 0) throw std::invalid_argument("ORB: edgeThreshold must be >= 0");
+    // Level 0 is always the input image at scale 1 and the other levels are
+    // scaled by scaleFactor^level; a firstLevel above 0 would duplicate level 0
+    // and shift every size by one step, so it is not supported (#23).
+    if (firstLevel != 0) throw std::invalid_argument("ORB: only firstLevel == 0 is supported");
+    if (wta_k != 2 && wta_k != 3 && wta_k != 4) throw std::invalid_argument("ORB: wta_k must be 2, 3 or 4");
+    if (scoreType != HARRIS_SCORE && scoreType != FAST_SCORE) throw std::invalid_argument("ORB: unknown scoreType");
+    if (patchSize <= 0) throw std::invalid_argument("ORB: patchSize must be > 0");
+    if (fastThreshold <= 0) throw std::invalid_argument("ORB: fastThreshold must be > 0");
+}
 
 float ORB::getScale(int level) const {
     return std::pow(scaleFactor, static_cast<float>(level - firstLevel));
@@ -103,11 +120,6 @@ void ORB::detectAndCompute(const Image8U& image, std::vector<KeyPoint>& keypoint
     descriptors = Image8U();
 
     if (image.cols == 0 || image.rows == 0) return;
-
-    // An unsupported wta_k can't produce descriptors at all, so reject it
-    // before spending the pyramid, FAST and Harris work on keypoints that
-    // would then be thrown away (issue #22).
-    if (wta_k != 2 && wta_k != 3 && wta_k != 4) return;
 
     // 1. Build the Image Pyramid
     double pyramidMs = 0.0;

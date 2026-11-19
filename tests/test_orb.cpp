@@ -9,6 +9,7 @@
 #include <functional>
 #include <map>
 #include <cstdint>
+#include <stdexcept>
 
 namespace {
 
@@ -89,41 +90,10 @@ TEST_CASE("ORB::detectAndCompute: a featureless image clears outputs from a prev
     CHECK(descriptors.data.empty());
 }
 
-TEST_CASE("ORB::detectAndCompute: an unsupported wta_k clears both outputs") {
-    Image8U image = makeDotGrid(128, 30, 220);
-
-    ORB orb(50, 1.2f, 2, 16, 0, 5, ORB::HARRIS_SCORE, 31, 20); // wta_k 5 has no pattern
-    std::vector<KeyPoint> keypoints;
-    Image8U descriptors;
-
-    // First call already sees the bad wta_k, outputs start empty.
-    orb.detectAndCompute(image, keypoints, descriptors);
-    CHECK(keypoints.empty());
-    CHECK(descriptors.data.empty());
-
-    // And a good run followed by a bad one leaves nothing behind either.
-    ORB good(50, 1.2f, 2, 16, 0, 2, ORB::HARRIS_SCORE, 31, 20);
-    good.detectAndCompute(image, keypoints, descriptors);
-    CHECK(!keypoints.empty());
-
-    orb.detectAndCompute(image, keypoints, descriptors);
-    CHECK(keypoints.empty());
-    CHECK_EQ(descriptors.rows, 0);
-    CHECK(descriptors.data.empty());
-}
-
-TEST_CASE("ORB::detectAndCompute: an unsupported wta_k is rejected before any stage runs") {
-    Image8U image = makeDotGrid(128, 30, 220);
-
-    ORB orb(50, 1.2f, 2, 16, 0, 5, ORB::HARRIS_SCORE, 31, 20);
-    std::vector<KeyPoint> keypoints;
-    Image8U descriptors;
-    std::vector<StageTiming> stageTimings;
-
-    orb.detectAndCompute(image, keypoints, descriptors, &stageTimings);
-
-    CHECK(stageTimings.empty());
-}
+// An unsupported wta_k is rejected by the constructor (see the constructor
+// validation tests at the end of this file), so detectAndCompute never sees
+// one; the #22 "clear outputs on every early return" rule is covered by the
+// empty-image and featureless-image tests above.
 
 TEST_CASE("ORB::detectAndCompute: flat image produces no keypoints") {
     Image8U image(64, 64);
@@ -479,4 +449,51 @@ TEST_CASE("ORB::detectAndCompute: FAST_SCORE keeps at most nfeatures keypoints, 
         if (!kept && k.response > weakestKept) ++strongerDropped;
     }
     CHECK_EQ(strongerDropped, 0);
+}
+
+// ---------------------------------------------------------------------------
+// Constructor validation (#23, #22): unsupported parameters are rejected up
+// front with std::invalid_argument instead of being discovered after detection.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+bool constructorThrows(int nfeatures, float scaleFactor, int nlevels, int edgeThreshold, int firstLevel,
+                       int wta_k, ORB::ScoreType scoreType, int patchSize, int fastThreshold) {
+    try {
+        ORB orb(nfeatures, scaleFactor, nlevels, edgeThreshold, firstLevel, wta_k, scoreType, patchSize, fastThreshold);
+    } catch (const std::invalid_argument&) {
+        return true;
+    }
+    return false;
+}
+
+} // namespace
+
+TEST_CASE("ORB: constructor rejects firstLevel != 0, which was never supported") {
+    // Level 0 is always the original image at scale 1 (orb.cpp hard-codes
+    // layerScale[0] = 1), so any other firstLevel would duplicate level 0 and
+    // shift every scale by one step.
+    CHECK(constructorThrows(500, 1.2f, 8, 31, 1, 2, ORB::HARRIS_SCORE, 31, 20));
+    CHECK(constructorThrows(500, 1.2f, 8, 31, -1, 2, ORB::HARRIS_SCORE, 31, 20));
+    CHECK(!constructorThrows(500, 1.2f, 8, 31, 0, 2, ORB::HARRIS_SCORE, 31, 20));
+}
+
+TEST_CASE("ORB: constructor rejects the other unsupported parameters") {
+    CHECK(constructorThrows(500, 1.2f, 8, 31, 0, 5, ORB::HARRIS_SCORE, 31, 20)); // wta_k not in {2, 3, 4}
+    CHECK(constructorThrows(500, 1.2f, 8, 31, 0, 1, ORB::HARRIS_SCORE, 31, 20));
+    CHECK(constructorThrows(500, 1.2f, 0, 31, 0, 2, ORB::HARRIS_SCORE, 31, 20)); // nlevels < 1
+    CHECK(constructorThrows(500, 1.0f, 8, 31, 0, 2, ORB::HARRIS_SCORE, 31, 20)); // scaleFactor <= 1
+    CHECK(constructorThrows(500, 0.9f, 8, 31, 0, 2, ORB::HARRIS_SCORE, 31, 20));
+    CHECK(constructorThrows(-1, 1.2f, 8, 31, 0, 2, ORB::HARRIS_SCORE, 31, 20));  // nfeatures < 0
+    CHECK(constructorThrows(500, 1.2f, 8, -1, 0, 2, ORB::HARRIS_SCORE, 31, 20)); // edgeThreshold < 0
+    CHECK(constructorThrows(500, 1.2f, 8, 31, 0, 2, ORB::HARRIS_SCORE, 0, 20));  // patchSize <= 0
+    CHECK(constructorThrows(500, 1.2f, 8, 31, 0, 2, ORB::HARRIS_SCORE, 31, 0));  // fastThreshold <= 0
+    // scoreType: an out-of-range value cannot be produced without undefined
+    // behaviour (ScoreType is an unscoped enum; UBSan flags the cast), so the
+    // constructor's check for it is not exercised here.
+    // Valid combinations, including wta_k 3 and 4 and FAST_SCORE, construct fine.
+    CHECK(!constructorThrows(500, 1.2f, 8, 31, 0, 3, ORB::HARRIS_SCORE, 31, 20));
+    CHECK(!constructorThrows(500, 1.2f, 8, 31, 0, 4, ORB::FAST_SCORE, 31, 20));
+    CHECK(!constructorThrows(0, 1.01f, 1, 0, 0, 2, ORB::HARRIS_SCORE, 1, 1));
 }
