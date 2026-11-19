@@ -96,9 +96,18 @@ float ORB::getScale(int level) const {
 
 void ORB::detectAndCompute(const Image8U& image, std::vector<KeyPoint>& keypoints, Image8U& descriptors,
                             std::vector<StageTiming>* stageTimings) {
+    // Every call fully defines its outputs, whatever the path taken (issue
+    // #22): clearing here means an early return cannot leave the caller
+    // holding keypoints or a descriptor matrix from a previous call.
+    keypoints.clear();
+    descriptors = Image8U();
+
     if (image.cols == 0 || image.rows == 0) return;
 
-    keypoints.clear();
+    // An unsupported wta_k can't produce descriptors at all, so reject it
+    // before spending the pyramid, FAST and Harris work on keypoints that
+    // would then be thrown away (issue #22).
+    if (wta_k != 2 && wta_k != 3 && wta_k != 4) return;
 
     // 1. Build the Image Pyramid
     double pyramidMs = 0.0;
@@ -250,7 +259,7 @@ void ORB::detectAndCompute(const Image8U& image, std::vector<KeyPoint>& keypoint
         ScopedAccumulator timer(&patternInitMs);
         if (wta_k == 2) {
             pattern.assign(pattern0, pattern0 + npoints);
-        } else if (wta_k == 3 || wta_k == 4) {
+        } else { // wta_k == 3 or 4, validated on entry
             // dsize is 32 bytes, which means 256 bits (or tuples).
             // 256 tuples * wta_k points per tuple.
             int ntuples = 32 * 8;
@@ -258,11 +267,6 @@ void ORB::detectAndCompute(const Image8U& image, std::vector<KeyPoint>& keypoint
         }
     }
     if (stageTimings) stageTimings->push_back({"pattern_init", patternInitMs});
-
-    if (wta_k != 2 && wta_k != 3 && wta_k != 4) {
-        // Fallback for unsupported wta_k
-        return;
-    }
 
     // 5. Compute Descriptors
     double blurMs = 0.0;

@@ -49,6 +49,82 @@ TEST_CASE("ORB::detectAndCompute: empty image produces no keypoints") {
     CHECK(keypoints.empty());
 }
 
+// Every early return must leave both outputs empty, not holding whatever the
+// previous call produced (issue #22). Each test below runs one successful
+// detection first, so the outputs are populated when the second call starts.
+TEST_CASE("ORB::detectAndCompute: an empty image clears outputs from a previous call") {
+    Image8U image = makeDotGrid(128, 30, 220);
+
+    ORB orb(50, 1.2f, 2, 16, 0, 2, ORB::HARRIS_SCORE, 31, 20);
+    std::vector<KeyPoint> keypoints;
+    Image8U descriptors;
+    orb.detectAndCompute(image, keypoints, descriptors);
+    CHECK(!keypoints.empty());
+    CHECK_EQ(descriptors.rows, static_cast<int>(keypoints.size()));
+
+    Image8U emptyImage; // 0x0
+    orb.detectAndCompute(emptyImage, keypoints, descriptors);
+
+    CHECK(keypoints.empty());
+    CHECK_EQ(descriptors.rows, 0);
+    CHECK_EQ(descriptors.cols, 0);
+    CHECK(descriptors.data.empty());
+}
+
+TEST_CASE("ORB::detectAndCompute: a featureless image clears outputs from a previous call") {
+    Image8U image = makeDotGrid(128, 30, 220);
+
+    ORB orb(50, 1.2f, 2, 16, 0, 2, ORB::HARRIS_SCORE, 31, 20);
+    std::vector<KeyPoint> keypoints;
+    Image8U descriptors;
+    orb.detectAndCompute(image, keypoints, descriptors);
+    CHECK(!keypoints.empty());
+
+    Image8U flat(64, 64);
+    for (auto& v : flat.data) v = 128;
+    orb.detectAndCompute(flat, keypoints, descriptors);
+
+    CHECK(keypoints.empty());
+    CHECK_EQ(descriptors.rows, 0);
+    CHECK(descriptors.data.empty());
+}
+
+TEST_CASE("ORB::detectAndCompute: an unsupported wta_k clears both outputs") {
+    Image8U image = makeDotGrid(128, 30, 220);
+
+    ORB orb(50, 1.2f, 2, 16, 0, 5, ORB::HARRIS_SCORE, 31, 20); // wta_k 5 has no pattern
+    std::vector<KeyPoint> keypoints;
+    Image8U descriptors;
+
+    // First call already sees the bad wta_k, outputs start empty.
+    orb.detectAndCompute(image, keypoints, descriptors);
+    CHECK(keypoints.empty());
+    CHECK(descriptors.data.empty());
+
+    // And a good run followed by a bad one leaves nothing behind either.
+    ORB good(50, 1.2f, 2, 16, 0, 2, ORB::HARRIS_SCORE, 31, 20);
+    good.detectAndCompute(image, keypoints, descriptors);
+    CHECK(!keypoints.empty());
+
+    orb.detectAndCompute(image, keypoints, descriptors);
+    CHECK(keypoints.empty());
+    CHECK_EQ(descriptors.rows, 0);
+    CHECK(descriptors.data.empty());
+}
+
+TEST_CASE("ORB::detectAndCompute: an unsupported wta_k is rejected before any stage runs") {
+    Image8U image = makeDotGrid(128, 30, 220);
+
+    ORB orb(50, 1.2f, 2, 16, 0, 5, ORB::HARRIS_SCORE, 31, 20);
+    std::vector<KeyPoint> keypoints;
+    Image8U descriptors;
+    std::vector<StageTiming> stageTimings;
+
+    orb.detectAndCompute(image, keypoints, descriptors, &stageTimings);
+
+    CHECK(stageTimings.empty());
+}
+
 TEST_CASE("ORB::detectAndCompute: flat image produces no keypoints") {
     Image8U image(64, 64);
     for (auto& v : image.data) v = 128;
