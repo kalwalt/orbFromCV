@@ -11,7 +11,7 @@ Thanks for your interest in improving this standalone ORB implementation. Bug re
 
 - **No new dependencies.** The core library and the test suite depend only on the C++14 standard library and the bundled `stb_image.h`. OpenCV is used only by the optional `compare_orb` tool, behind `BUILD_OPENCV_COMPARISON` (off by default).
 - **C++14**, declarations in `.hpp`, implementation in `.cpp`, matching the existing style.
-- **Keep the row-major, fixed-point structure** of `image_utils.cpp` and `orb_core.cpp`; it is laid out for future SIMD/WASM work.
+- **Keep the row-major structure and the exact arithmetic** of `image_utils.cpp` and `orb_core.cpp`: the resize is fixed point and the blur float32, both chosen to be bit-identical to OpenCV, and both laid out for future SIMD/WASM work.
 - `orb_pattern.hpp` is generated data from OpenCV. Do not edit it by hand.
 
 ## Building and testing

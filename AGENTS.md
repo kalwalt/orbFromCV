@@ -33,7 +33,7 @@ ctest --test-dir build -C Debug --output-on-failure
 - No OpenCV, no external deps beyond the bundled `stb_image.h` — keep it that way,
   including in `tests/` (no gtest/Catch2/doctest).
 - Match existing header/source split: declarations in `.hpp`, implementation in `.cpp`.
-- Preserve row-major memory layout and fixed-point paths in `image_utils.cpp` /
+- Preserve row-major memory layout and the fixed-point / float arithmetic in `image_utils.cpp` /
   `orb_core.cpp` — they're structured for future SIMD/WASM ports.
 - `orb_pattern.hpp` (BRIEF sampling pattern) is generated data — don't hand-edit.
 - Add a test in `tests/` alongside any change to core algorithm behavior.

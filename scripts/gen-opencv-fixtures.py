@@ -11,7 +11,7 @@ scene produce the same bytes, so a re-run leaves `git status` clean):
 
   opencv_ref.hpp         @generated header: toolchain meta, small payloads
   blur-scene.pgm         the blur cv::ORB applies per level: sepFilter2D with getGaussianKernel(7, 2, CV_32F),
-                         BORDER_REFLECT_101 (float path, single rounding; see orb_blur())
+                         BORDER_REFLECT_101 (float path, single rounding, no FMA; see orb_blur())
   resize-533x400.pgm     resize(scene, (533, 400), INTER_LINEAR_EXACT), as ORB builds its pyramid
   fast-t20.bin           FAST(scene, 20, nonmaxSuppression=False, TYPE_9_16): uint16 LE (x, y) pairs
   fast-t20-nms.bin       FAST(scene, 20, nonmaxSuppression=True):  uint16 LE x, y + float32 LE response
@@ -115,10 +115,18 @@ def require_pinned_toolchain() -> Toolchain:
     if np.__version__ != np_pin:
         sys.exit(f"error: numpy is {np.__version__}, {REQUIREMENTS.name} pins {np_pin}")
 
-    # Generic CPU path only: IPP can take a different code path for some functions.
+    # Generic CPU path only: IPP can take a different code path for some
+    # functions, and the SIMD dispatch uses fused multiply-add on x86 CPUs that
+    # have it, which moves pixels sitting on a rounding tie by one gray level
+    # (1 pixel of the 640x480 scene). With the dispatch off the wheel computes
+    # exactly what opencv.js (WebAssembly, no FMA) computes, which is the
+    # reference this port reproduces bit for bit (#39).
     cv2.ipp.setUseIPP(False)
     if cv2.ipp.useIPP():
         sys.exit("error: could not disable Intel IPP")
+    cv2.setUseOptimized(False)
+    if cv2.useOptimized():
+        sys.exit("error: could not disable the SIMD dispatch (cv2.setUseOptimized(False))")
 
     return Toolchain(cv2, np, f"{OPENCV_DIST}=={wheel}",
                      build_version(cv2, "Version control:"),
@@ -188,6 +196,9 @@ def orb_blur(tc: Toolchain, image):
     one saturate_cast<uchar> (round half to even) at the end.
     Verified: this reproduces cv::ORB::compute() descriptors bit for bit, the
     standalone cv2.GaussianBlur on a plain array does not (17/40 rows).
+
+    Computed with the SIMD dispatch off (see require_pinned_toolchain), i.e.
+    plain float32 multiply-adds, which is also what opencv.js computes.
     """
     cv2 = tc.cv2
     k = cv2.getGaussianKernel(7, 2, cv2.CV_32F)
@@ -341,6 +352,7 @@ def header_meta(tc: Toolchain, scene: Scene) -> list[str]:
         f'static const char* const OPENCV_BUILD = "{tc.build}";          // Version control: line of getBuildInformation()',
         f'static const char* const OPENCV_CONTRIB_BUILD = "{tc.contrib_build}";  // Version control (extra):',
         "static const bool OPENCV_IPP = false;",
+        "static const bool OPENCV_OPTIMIZED = false;  // cv2.setUseOptimized(False): generic scalar path, no FMA",
         f'static const char* const SCENE_FILE = "{SCENE_NAME}";',
         f'static const char* const SCENE_SHA256 = "{scene.sha256}";',
         "static const int SCENE_COLS = 640;",

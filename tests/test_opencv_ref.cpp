@@ -76,6 +76,7 @@ TEST_CASE("opencv_ref: fixtures were generated with the pinned OpenCV 4.10.0, IP
     CHECK(std::string(opencv_ref::OPENCV_BUILD) == "4.10.0");
     CHECK(std::string(opencv_ref::OPENCV_CONTRIB_BUILD) == "4.10.0");
     CHECK(!opencv_ref::OPENCV_IPP);
+    CHECK(!opencv_ref::OPENCV_OPTIMIZED);
 }
 
 TEST_CASE("opencv_ref: the committed scene PGM is cornerScene(640, 480) byte for byte") {
@@ -133,10 +134,10 @@ TEST_CASE("opencv_ref: every OpenCV link in docs and sources is pinned to 4.10.0
 // ---------------------------------------------------------------------------
 
 // blur-scene.pgm is the blur cv::ORB applies to each level: the float
-// separable path with one final rounding (see scripts/gen-opencv-fixtures.py,
-// orb_blur()). gaussianBlur7x7 truncates an 8-bit integer kernel after each
-// pass and differs by +-1 on ~10% of the pixels (#39).
-TEST_CASE("opencv_ref: gaussianBlur7x7 equals the blur cv::ORB applies, byte for byte (#39)") {
+// separable path with one final rounding, generic scalar arithmetic (no FMA,
+// as opencv.js; see scripts/gen-opencv-fixtures.py, orb_blur()).
+// gaussianBlur7x7 reproduces it bit for bit (#39).
+TEST_CASE("opencv_ref: gaussianBlur7x7 equals the blur cv::ORB applies, byte for byte") {
     Image8U scene = loadScene();
     Image8U expected = readPGM(fixturePath("blur-scene.pgm"));
     Image8U actual;
@@ -147,16 +148,18 @@ TEST_CASE("opencv_ref: gaussianBlur7x7 equals the blur cv::ORB applies, byte for
     for (int y = 0; y < expected.rows && y < actual.rows; ++y)
         for (int x = 0; x < expected.cols && x < actual.cols; ++x) {
             int d = std::abs(static_cast<int>(actual.at(y, x)) - static_cast<int>(expected.at(y, x)));
+            if (d && differing < 5)
+                std::fprintf(stderr, "    differs at (%d, %d): ours %d, OpenCV %d\n", x, y, actual.at(y, x), expected.at(y, x));
             differing += d != 0;
             maxDiff = std::max(maxDiff, d);
         }
     std::fprintf(stderr, "    differing pixels: %ld of %d, max |diff| = %d (OpenCV's own bit-exact 8U path differs on %d)\n",
                  differing, expected.cols * expected.rows, maxDiff, opencv_ref::BLUR_BITEXACT_DIFFERING_PIXELS);
-    CHECK(maxDiff <= 2); // the double truncation costs at most 2 levels
-    CHECK_XFAIL(differing == 0, "#39");
+    CHECK_EQ(maxDiff, 0);
+    CHECK_EQ(differing, 0L);
 }
 
-TEST_CASE("opencv_ref: gaussianBlur7x7 equals the blur cv::ORB applies on 1-40 px crops (#39)") {
+TEST_CASE("opencv_ref: gaussianBlur7x7 equals the blur cv::ORB applies on 1-40 px crops") {
     Image8U scene = loadScene();
     bool allSame = true;
     for (int i = 0; i < opencv_ref::BLUR_CROP_COUNT; ++i) {
@@ -173,10 +176,10 @@ TEST_CASE("opencv_ref: gaussianBlur7x7 equals the blur cv::ORB applies on 1-40 p
                 maxDiff = std::max(maxDiff, std::abs(static_cast<int>(actual.at(y, x)) -
                                                      static_cast<int>(opencv_ref::BLUR_CROP[i][y * w + x])));
         if (maxDiff) std::fprintf(stderr, "    crop %dx%d differs, max |diff| = %d\n", w, h, maxDiff);
-        CHECK(maxDiff <= 2);
+        CHECK_EQ(maxDiff, 0);
         allSame = allSame && maxDiff == 0;
     }
-    CHECK_XFAIL(allSame, "#39");
+    CHECK(allSame);
 }
 
 // ---------------------------------------------------------------------------
@@ -254,8 +257,8 @@ TEST_CASE("opencv_ref: detectFAST with NMS matches cv2.FAST corners and scores")
 // computeOrbDescriptors vs cv2.ORB.compute() on fixed keypoints
 // ---------------------------------------------------------------------------
 
-// Two checks: described on OpenCV's own blurred level (blur-scene.pgm) the
-// descriptor code must be exact; described on our blur it inherits #39.
+// Two checks: described on OpenCV's own blurred level (blur-scene.pgm) and
+// on our own blur, both must be exact.
 TEST_CASE("opencv_ref: computeOrbDescriptors equals cv2.ORB.compute() on fixed level-0 keypoints") {
     Image8U scene = loadScene();
     Image8U blurred;
@@ -283,7 +286,7 @@ TEST_CASE("opencv_ref: computeOrbDescriptors equals cv2.ORB.compute() on fixed l
         identicalRows += same;
     }
     std::fprintf(stderr, "    identical descriptor rows on our blur: %d / %d\n", identicalRows, opencv_ref::ORB_COMPUTE_COUNT);
-    CHECK_XFAIL(identicalRows == opencv_ref::ORB_COMPUTE_COUNT, "#39");
+    CHECK_EQ(identicalRows, opencv_ref::ORB_COMPUTE_COUNT);
 
     // The same keypoints described on OpenCV's own blurred level isolate the
     // descriptor code from the blur: this must be exact.
@@ -339,6 +342,19 @@ TEST_CASE("opencv_ref: ORB::detectAndCompute keypoints spatially match cv2.ORB (
             while (x) { hammingSum += x & 1; x >>= 1; }
         }
     }
+    int identicalDesc = 0;
+    for (int i = 0; i < opencv_ref::ORB_DETECT_COUNT; ++i) {
+        const float* r = opencv_ref::ORB_DETECT_KEYPOINT[i];
+        for (size_t j = 0; j < kps.size(); ++j) {
+            if (kps[j].octave != static_cast<int>(r[5]) || kps[j].pt.x != r[0] || kps[j].pt.y != r[1]) continue;
+            bool same = true;
+            for (int k = 0; k < 32; ++k) same = same && desc.at(static_cast<int>(j), k) == opencv_ref::ORB_DETECT_DESCRIPTOR[i * 32 + k];
+            identicalDesc += same;
+            break;
+        }
+    }
+    std::fprintf(stderr, "    keypoints at the exact position with a byte-identical descriptor: %d / %d\n",
+                 identicalDesc, opencv_ref::ORB_DETECT_COUNT);
     const double rate = static_cast<double>(matched) / opencv_ref::ORB_DETECT_COUNT;
     std::fprintf(stderr, "    spatial match rate (same octave, <= 2 px): %.1f%% (%d / %d), mean Hamming of matches: %.1f bits\n",
                  100.0 * rate, matched, opencv_ref::ORB_DETECT_COUNT,

@@ -14,6 +14,7 @@ static const char* const OPENCV_WHEEL = "opencv-contrib-python==4.10.0.84";
 static const char* const OPENCV_BUILD = "4.10.0";          // Version control: line of getBuildInformation()
 static const char* const OPENCV_CONTRIB_BUILD = "4.10.0";  // Version control (extra):
 static const bool OPENCV_IPP = false;
+static const bool OPENCV_OPTIMIZED = false;  // cv2.setUseOptimized(False): generic scalar path, no FMA
 static const char* const SCENE_FILE = "scene-640x480.pgm";
 static const char* const SCENE_SHA256 = "530346c16f86f2bf6e1ec4684e6dc2eeeedf038bb92c2c2a87379337960a3db0";
 static const int SCENE_COLS = 640;
@@ -25,8 +26,8 @@ static const int SCENE_ROWS = 480;
 // Full image: blur-scene.pgm. Small crops of the scene's top-left corner, blurred
 // as standalone images, exercise dimensions <= 3 px (REFLECT_101 repeated, #15).
 // For the record: the 8-bit bit-exact cv2.GaussianBlur(scene, (7, 7), 2, 2, REFLECT_101)
-// differs from this on 30769 of 307200 pixels (by at most 1).
-static const int BLUR_BITEXACT_DIFFERING_PIXELS = 30769;
+// differs from this on 30770 of 307200 pixels (by at most 1).
+static const int BLUR_BITEXACT_DIFFERING_PIXELS = 30770;
 static const int BLUR_CROP_COUNT = 7;
 static const int BLUR_CROP_SIZE[][2] = {  // {cols, rows}
     {1, 1},

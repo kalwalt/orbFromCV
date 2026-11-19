@@ -31,8 +31,8 @@ once the condition holds, so the fixing PR turns them into hard assertions.
 `scripts/requirements-fixtures.txt` pins `opencv-contrib-python==4.10.0.84` and
 `numpy==2.4.6`. The generator refuses to run unless the installed wheel is
 exactly that version (all four parts, not only `cv2.__version__`) and no other
-`cv2`-providing distribution is installed, and it switches Intel IPP off (the
-reference is OpenCV's generic CPU path). `opencv_ref.hpp` records the wheel and
+`cv2`-providing distribution is installed, and it switches Intel IPP and the
+SIMD dispatch off (the reference is OpenCV's generic scalar path). `opencv_ref.hpp` records the wheel and
 the `Version control` lines of `cv2.getBuildInformation()`; a test checks them
 against the pin, and another test rejects OpenCV links in docs and sources that
 are not pinned to `4.10.0`.
@@ -52,6 +52,14 @@ rounding. `blur-scene.pgm` is that blur (`sepFilter2D` with
 `getGaussianKernel(7, 2, CV_32F)`), which reproduces `cv::ORB::compute()`
 descriptors bit for bit; the standalone `cv2.GaussianBlur` on a plain array
 differs from it on 30,769 pixels by ±1 and does not.
+
+The generator also switches the SIMD dispatch off (`cv2.setUseOptimized(False)`).
+With it on, the x86 wheel uses fused multiply-adds, which move pixels whose exact
+value sits on a rounding tie by one gray level (1 pixel of the scene, at
+(556, 409)); with it off the wheel computes plain float32 multiply-adds, which is
+exactly what opencv.js 4.10.0 (WebAssembly, no FMA) computes and what
+`gaussianBlur7x7` reproduces bit for bit on every compiler. ORB's keypoints and
+descriptors on the scene are identical either way.
 
 ## Regenerating
 
