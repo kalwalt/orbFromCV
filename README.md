@@ -14,7 +14,7 @@ The goal of this repository is to provide a lightweight, header-and-source C++ i
 ### Key Features
 - **Zero OpenCV Dependencies**: All necessary structures (Image, KeyPoint, Point, Rect) and algorithms (FAST, Harris Response, Image Pyramid, Gaussian Blur, Bilinear Resize) are implemented from scratch using standard C++.
 - **C++14 Standard**: Uses modern C++ features while maintaining broad compatibility.
-- **Performance Oriented**: Includes optimized fixed-point Gaussian blurring and row-major memory access patterns designed for future SIMD/WASM optimizations.
+- **Performance Oriented**: Separable Gaussian blur and fixed-point bilinear resize, both bit-identical to what `cv::ORB` computes, with row-major memory access patterns designed for future SIMD/WASM optimizations.
 - **Complete Pipeline**: Supports the full ORB pipeline including pyramid construction, FAST detection, Harris scoring, Intensity Centroid orientation, and BRIEF descriptor computation.
 - **Tested against OpenCV**: A diagnostic tool (`compare_orb`) validates keypoint, orientation, and descriptor agreement against `cv::ORB` on real images.
 

@@ -228,23 +228,34 @@ int reflect101(int i, int n) {
     return i;
 }
 
-// Straightforward separable 7-tap blur written from the kernel definition,
-// deliberately naive so it stays an independent oracle for the optimised
-// implementation.
+// Per-pixel reference of the blur cv::ORB applies: float32 kernel
+// getGaussianKernel(7, 2, CV_32F), row pass accumulating taps 0..6, column pass
+// centre tap first then symmetric pairs, plain float32 multiply-adds (two
+// roundings, no FMA), one round-half-to-even at the end. Written per pixel with
+// index reflection, independently of the optimised loops.
+float fma32(float a, float b, float c) {
+    return static_cast<float>(static_cast<float>(a * b) + c);
+}
+
 Image8U referenceBlur7x7(const Image8U& src) {
-    const int kernel[7] = {18, 33, 49, 56, 49, 33, 18};
-    Image8U temp(src.cols, src.rows), out(src.cols, src.rows);
+    const float kernel[7] = {0.0701593235f, 0.131074876f, 0.190712824f, 0.216105938f,
+                             0.190712824f, 0.131074876f, 0.0701593235f};
+    std::vector<float> temp(static_cast<size_t>(src.rows) * src.cols);
+    Image8U out(src.cols, src.rows);
     for (int y = 0; y < src.rows; ++y)
         for (int x = 0; x < src.cols; ++x) {
-            int sum = 0;
-            for (int k = -3; k <= 3; ++k) sum += src.at(y, reflect101(x + k, src.cols)) * kernel[k + 3];
-            temp.at(y, x) = static_cast<uint8_t>(sum >> 8);
+            float acc = kernel[0] * static_cast<float>(src.at(y, reflect101(x - 3, src.cols)));
+            for (int k = 1; k < 7; ++k)
+                acc = fma32(kernel[k], static_cast<float>(src.at(y, reflect101(x - 3 + k, src.cols))), acc);
+            temp[static_cast<size_t>(y) * src.cols + x] = acc;
         }
+    auto T = [&](int y, int x) { return temp[static_cast<size_t>(reflect101(y, src.rows)) * src.cols + x]; };
     for (int y = 0; y < src.rows; ++y)
         for (int x = 0; x < src.cols; ++x) {
-            int sum = 0;
-            for (int k = -3; k <= 3; ++k) sum += temp.at(reflect101(y + k, src.rows), x) * kernel[k + 3];
-            out.at(y, x) = static_cast<uint8_t>(sum >> 8);
+            float acc = kernel[3] * T(y, x);
+            for (int k = 1; k <= 3; ++k) acc = fma32(kernel[3 - k], static_cast<float>(T(y - k, x) + T(y + k, x)), acc);
+            long v = std::lrint(acc);
+            out.at(y, x) = static_cast<uint8_t>(v < 0 ? 0 : (v > 255 ? 255 : v));
         }
     return out;
 }
@@ -289,7 +300,7 @@ TEST_CASE("gaussianBlur7x7: images with a dimension of 1-3 px stay in bounds") {
     const int sizes[][2] = {{1, 1}, {2, 2}, {3, 3}, {2, 5}, {5, 3}, {3, 8},
                             {40, 3}, {3, 40}, {1, 12}, {12, 1}, {2, 1}};
     for (const auto& s : sizes) {
-        // A constant image must come back unchanged (the kernel sums to 256),
+        // A constant image must come back unchanged (the kernel sums to 1),
         // whatever the reflection rule - any out-of-bounds tap breaks this.
         Image8U flat(s[0], s[1]);
         for (auto& v : flat.data) v = 200;

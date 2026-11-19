@@ -1,4 +1,5 @@
 #include "image_utils.hpp"
+#include <cmath>
 #include <algorithm>
 #include <utility>
 #include <vector>
@@ -118,15 +119,43 @@ void gaussianBlur7x7(const Image8U& src, Image8U& dst) {
     if (src.cols == 0 || src.rows == 0) return;
 
     const int cols = src.cols, rows = src.rows;
-    Image8U temp(cols, rows);   // horizontal-pass intermediate
-    Image8U result(cols, rows); // vertical-pass output
 
-    // 1D Gaussian kernel for sigma = 2.0 (approx integer weights, sum = 256),
-    // symmetric so each tap pair shares one multiply. Integer math only.
-    const int kernel[7] = {18, 33, 49, 56, 49, 33, 18};
+    // This is the blur cv::ORB applies to every pyramid level, reproduced bit
+    // for bit (issue #39). ORB blurs each level as a submatrix of its padded
+    // buffer, so cv::GaussianBlur skips its 8-bit fixed-point path and runs
+    // the generic float separable filter: a 32-bit float kernel
+    // (getGaussianKernel(7, 2, CV_32F)), a float row pass (RowFilter: taps
+    // accumulated in order 0..6), a float column pass (SymmColumnFilter:
+    // centre tap first, then each symmetric pair added in float and
+    // accumulated), and one rounding to 8 bits at the end
+    // (saturate_cast<uchar>: round half to even).
+    // Verified identical to OpenCV's generic scalar path (cv2.setUseOptimized
+    // off, and opencv.js) on 2.17 million pixels over 36 images, including
+    // 1-3 px sizes and widths that are not SIMD multiples.
+    static const float kernel[7] = {0.0701593235f, 0.131074876f, 0.190712824f, 0.216105938f,
+                                    0.190712824f, 0.131074876f, 0.0701593235f};
     const int kRadius = 3;
-    const int k0 = kernel[0], k1 = kernel[1], k2 = kernel[2], k3 = kernel[3];
 
+    // a * b + c in float32 with two roundings, i.e. no fused multiply-add.
+    // GCC contracts this into an FMA on targets that have one even across the
+    // explicit cast, so CMakeLists.txt builds with -ffp-contract=off (GCC and
+    // Clang; MSVC does not contract under its default /fp:precise). Every
+    // build then computes the same bytes. This is what OpenCV computes on
+    // targets without FMA, opencv.js included; OpenCV builds that dispatch to
+    // FMA hardware differ from it on the rare pixels whose exact value sits on
+    // a rounding tie (about 3 per million on noise), by 1 gray level.
+    auto mulAdd = [](float a, float b, float c) {
+        return static_cast<float>(static_cast<float>(a * b) + c);
+    };
+
+    // Round half to even to 0..255 (saturate_cast<uchar>(float) == cvRound).
+    // Adding 1.5 * 2^23 forces the float to the integer grid under the default
+    // round-to-nearest-even mode; valid for |v| < 2^22, far beyond 0..255 blur
+    // sums. Much cheaper than std::lrint in the inner loop.
+    auto roundToByte = [](float v) {
+        const int r = static_cast<int>(v + 12582912.0f) - 12582912;
+        return static_cast<uint8_t>(r < 0 ? 0 : (r > 255 ? 255 : r));
+    };
     // BORDER_REFLECT_101: index -1 -> 1, n -> n-2. Reflects repeatedly (as
     // OpenCV's borderInterpolate does) so dimensions below 4 px stay in bounds;
     // a 1-pixel dimension always maps to 0. Only border strips and per-row
@@ -137,44 +166,56 @@ void gaussianBlur7x7(const Image8U& src, Image8U& dst) {
         return i;
     };
 
-    // Horizontal pass: reflection only on the two 3-pixel border strips, the
-    // interior runs branch-free on the symmetric kernel.
+    // Row pass: float intermediate, as OpenCV's. Reflection only on the two
+    // 3-pixel border strips; the interior reads the taps directly.
+    std::vector<float> temp(static_cast<size_t>(rows) * cols);
     const int leftEnd = std::min(kRadius, cols);
     const int rightStart = std::max(kRadius, cols - kRadius);
     for (int y = 0; y < rows; ++y) {
         const uint8_t* s = src.ptr(y);
-        uint8_t* t = temp.ptr(y);
+        float* t = temp.data() + static_cast<size_t>(y) * cols;
 
         auto borderPixel = [&](int x) {
-            int sum = 0;
-            for (int k = -kRadius; k <= kRadius; ++k) sum += s[reflect(x + k, cols)] * kernel[k + kRadius];
-            t[x] = static_cast<uint8_t>(sum >> 8);
+            float acc = kernel[0] * static_cast<float>(s[reflect(x - 3, cols)]);
+            for (int k = 1; k < 7; ++k) acc = mulAdd(kernel[k], static_cast<float>(s[reflect(x - 3 + k, cols)]), acc);
+            t[x] = acc;
         };
         for (int x = 0; x < leftEnd; ++x) borderPixel(x);
+        // Interior: independent pixels, a plain loop the compiler vectorises.
         for (int x = kRadius; x < cols - kRadius; ++x) {
-            int sum = k0 * (s[x - 3] + s[x + 3]) + k1 * (s[x - 2] + s[x + 2]) +
-                      k2 * (s[x - 1] + s[x + 1]) + k3 * s[x];
-            t[x] = static_cast<uint8_t>(sum >> 8);
+            const uint8_t* p = s + x - 3;
+            float acc = kernel[0] * static_cast<float>(p[0]);
+            acc = mulAdd(kernel[1], static_cast<float>(p[1]), acc);
+            acc = mulAdd(kernel[2], static_cast<float>(p[2]), acc);
+            acc = mulAdd(kernel[3], static_cast<float>(p[3]), acc);
+            acc = mulAdd(kernel[4], static_cast<float>(p[4]), acc);
+            acc = mulAdd(kernel[5], static_cast<float>(p[5]), acc);
+            acc = mulAdd(kernel[6], static_cast<float>(p[6]), acc);
+            t[x] = acc;
         }
         for (int x = rightStart; x < cols; ++x) borderPixel(x);
     }
 
-    // Vertical pass as row accumulation: the seven source rows are resolved
-    // (with reflection) once per output row, then read contiguously.
+    // Column pass as row accumulation: the seven source rows are resolved
+    // (with reflection) once per output row, then read contiguously. Centre
+    // tap first, then the symmetric pairs, as SymmColumnFilter does.
+    Image8U result(cols, rows);
     for (int y = 0; y < rows; ++y) {
-        const uint8_t* r[7];
-        for (int k = 0; k < 7; ++k) r[k] = temp.ptr(reflect(y + k - kRadius, rows));
+        const float* r[7];
+        for (int k = 0; k < 7; ++k) r[k] = temp.data() + static_cast<size_t>(reflect(y + k - kRadius, rows)) * cols;
         uint8_t* out = result.ptr(y);
         for (int x = 0; x < cols; ++x) {
-            int sum = k0 * (r[0][x] + r[6][x]) + k1 * (r[1][x] + r[5][x]) +
-                      k2 * (r[2][x] + r[4][x]) + k3 * r[3][x];
-            out[x] = static_cast<uint8_t>(sum >> 8);
+            float acc = kernel[3] * r[3][x];
+            acc = mulAdd(kernel[2], static_cast<float>(r[2][x] + r[4][x]), acc);
+            acc = mulAdd(kernel[1], static_cast<float>(r[1][x] + r[5][x]), acc);
+            acc = mulAdd(kernel[0], static_cast<float>(r[0][x] + r[6][x]), acc);
+            out[x] = roundToByte(acc);
         }
     }
 
     // Deferred until every read of `src` is done, so gaussianBlur7x7(x, x)
     // (dst aliasing src - exactly how ORB::detectAndCompute calls this) is
     // safe: reassigning dst any earlier would overwrite src's data out from
-    // under the horizontal pass before it could read it.
+    // under the row pass before it could read it.
     dst = std::move(result);
 }

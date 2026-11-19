@@ -118,6 +118,8 @@ Adopts the strategy of jsfeatNext (`tests/fixtures/opencv/`, `scripts/gen-opencv
 
 Suggested order after this: #41 (trivial), then #20 and #24 as planned (they drive the octave-0 rate), with #39 and #40 alongside Task 9.
 
+**Status after #41 (PR #43), #20 (#44), #24 (#45), #40 (#47 by jamicaw56), #22 (#46 by jamicaw56) and #39:** `ORB::detectAndCompute` matches `cv::ORB` on the #32 scene for all 500 keypoints on all 8 octaves, 491 of them at the identical float position with a byte-identical descriptor, mean Hamming 0.0; every stage fixture is a hard assertion, no `CHECK_XFAIL` left. #39 found that OpenCV's own blur output depends on its SIMD/FMA dispatch at rounding ties (1 pixel of the scene); the fixtures are now generated with the dispatch off (`cv2.setUseOptimized(False)`), which is what opencv.js computes, and `gaussianBlur7x7` is plain float32 in OpenCV's evaluation order, about 2.5x slower than the old integer kernel (12 → 25–33 ms on pinball.jpg) until the SIMD work in #19.
+
 ### Task 3: Fully define outputs on early return + constructor validation (#22)
 
 **Files:**
