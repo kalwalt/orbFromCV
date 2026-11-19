@@ -17,14 +17,37 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Explicit build type: on single-config generators an install with
+      # --config Debug only emits the per-config export file if the build was
+      # configured for Debug (otherwise find_package sees no IMPORTED_LOCATION).
       - name: Configure
-        run: cmake -S . -B build
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
 
       - name: Build
         run: cmake --build build --config Debug
 
       - name: Test
         run: ctest --test-dir build -C Debug --output-on-failure
+
+      # The installed package must be usable from an external project with
+      # nothing but CMAKE_PREFIX_PATH (#28). Same config as the build, so the
+      # MSVC runtimes match.
+      - name: Install
+        run: cmake --install build --config Debug --prefix ${{ github.workspace }}/prefix
+
+      - name: Configure consumer
+        run: cmake -S tests/consumer -B build-consumer -DCMAKE_BUILD_TYPE=Debug -DCMAKE_PREFIX_PATH=${{ github.workspace }}/prefix
+
+      - name: Build consumer
+        run: cmake --build build-consumer --config Debug
+
+      - name: Run consumer (Linux)
+        if: runner.os == 'Linux'
+        run: ./build-consumer/orb_consumer
+
+      - name: Run consumer (Windows)
+        if: runner.os == 'Windows'
+        run: ./build-consumer/Debug/orb_consumer.exe
 
   # AddressSanitizer + UndefinedBehaviorSanitizer run of the whole test suite.
   # Catches out-of-bounds reads like #15 automatically instead of in review.

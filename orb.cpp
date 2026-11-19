@@ -111,7 +111,7 @@ float ORB::getScale(int level) const {
     return std::pow(scaleFactor, static_cast<float>(level - firstLevel));
 }
 
-void ORB::detectAndCompute(const Image8U& image, std::vector<KeyPoint>& keypoints, Image8U& descriptors,
+void ORB::detectAndCompute(const ImageView8U& image, std::vector<KeyPoint>& keypoints, Image8U& descriptors,
                             std::vector<StageTiming>* stageTimings) {
     // Every call fully defines its outputs, whatever the path taken (issue
     // #22): clearing here means an early return cannot leave the caller
@@ -119,17 +119,22 @@ void ORB::detectAndCompute(const Image8U& image, std::vector<KeyPoint>& keypoint
     keypoints.clear();
     descriptors = Image8U();
 
+    if (image.cols < 0 || image.rows < 0) throw std::invalid_argument("ORB: negative image size");
     if (image.cols == 0 || image.rows == 0) return;
+    if (image.data == nullptr) throw std::invalid_argument("ORB: null image data with a non-zero size");
+    if (image.step < image.cols) throw std::invalid_argument("ORB: image step must be >= cols");
 
-    // 1. Build the Image Pyramid
+    // 1. Build the Image Pyramid. Level 0 is the caller's buffer itself,
+    // read through the view (issue #28); levels >= 1 are owned.
     double pyramidMs = 0.0;
     std::vector<Image8U> imagePyramid(nlevels);
+    std::vector<ImageView8U> levelView(nlevels);
     std::vector<float> layerScale(nlevels);
     std::vector<Rect> layerInfo(nlevels); // Used to simulate OpenCV's offset structure if needed by core functions
 
     {
         ScopedAccumulator timer(&pyramidMs);
-        imagePyramid[0] = image; // Base level
+        levelView[0] = image; // Base level
         layerScale[0] = 1.0f;
         layerInfo[0] = {0, 0, image.cols, image.rows};
 
@@ -141,7 +146,8 @@ void ORB::detectAndCompute(const Image8U& image, std::vector<KeyPoint>& keypoint
             int scaled_width = static_cast<int>(std::round(image.cols * inv_scale));
             int scaled_height = static_cast<int>(std::round(image.rows * inv_scale));
 
-            resizeBilinear(imagePyramid[level - 1], imagePyramid[level], scaled_width, scaled_height);
+            resizeBilinear(levelView[level - 1], imagePyramid[level], scaled_width, scaled_height);
+            levelView[level] = imagePyramid[level];
             layerInfo[level] = {0, 0, scaled_width, scaled_height};
         }
     }
@@ -163,7 +169,7 @@ void ORB::detectAndCompute(const Image8U& image, std::vector<KeyPoint>& keypoint
         std::vector<KeyPoint> filteredKeypoints;
         {
             ScopedAccumulator timer(&fastDetectionMs);
-            detectFAST(imagePyramid[level], levelKeypoints, fastThreshold, true);
+            detectFAST(levelView[level], levelKeypoints, fastThreshold, true);
 
             // Filter by image border. OpenCV pads every level with a reflected
             // border of max(edgeThreshold, ceil(halfPatchSize * sqrt(2)),
@@ -177,8 +183,8 @@ void ORB::detectAndCompute(const Image8U& image, std::vector<KeyPoint>& keypoint
             const int border = std::max(std::max(edgeThreshold, patternReach()),
                                         std::max(descPatchSize, HARRIS_BLOCK_SIZE / 2));
             for (const auto& kp : levelKeypoints) {
-                if (kp.pt.x >= border && kp.pt.x < imagePyramid[level].cols - border &&
-                    kp.pt.y >= border && kp.pt.y < imagePyramid[level].rows - border) {
+                if (kp.pt.x >= border && kp.pt.x < levelView[level].cols - border &&
+                    kp.pt.y >= border && kp.pt.y < levelView[level].rows - border) {
 
                     KeyPoint newKp = kp;
                     newKp.octave = level;
@@ -194,7 +200,7 @@ void ORB::detectAndCompute(const Image8U& image, std::vector<KeyPoint>& keypoint
             // Keep only the best 2 * featuresNum corners by FAST score before
             // Harris, then the best featuresNum by Harris (#24).
             retainBest(filteredKeypoints, 2 * featuresNum);
-            HarrisResponses(imagePyramid[level], layerInfo, filteredKeypoints, HARRIS_BLOCK_SIZE, 0.04f);
+            HarrisResponses(levelView[level], layerInfo, filteredKeypoints, HARRIS_BLOCK_SIZE, 0.04f);
             retainBest(filteredKeypoints, featuresNum);
         } else {
             // FAST_SCORE: ranked by the FAST score itself (#21).
@@ -243,7 +249,7 @@ void ORB::detectAndCompute(const Image8U& image, std::vector<KeyPoint>& keypoint
             }
 
             if (!levelKpts.empty()) {
-                ICAngles(imagePyramid[level], layerInfo, levelKpts, umax, halfPatchSize);
+                ICAngles(levelView[level], layerInfo, levelKpts, umax, halfPatchSize);
                 for (size_t i = 0; i < levelKpts.size(); ++i) {
                     allKeypoints[originalIndices[i]].angle = levelKpts[i].angle;
                 }
@@ -308,9 +314,11 @@ void ORB::detectAndCompute(const Image8U& image, std::vector<KeyPoint>& keypoint
         if (levelKpts.empty()) continue;
 
         {
-            // Apply Gaussian Blur before computing descriptors for stability
+            // Apply Gaussian Blur before computing descriptors for stability.
+            // Level 0 is the caller's buffer, which is never written: its
+            // blur goes to the owned imagePyramid[0], left empty until here.
             ScopedAccumulator timer(&blurMs);
-            gaussianBlur7x7(imagePyramid[level], imagePyramid[level]);
+            gaussianBlur7x7(levelView[level], imagePyramid[level]);
         }
 
         {

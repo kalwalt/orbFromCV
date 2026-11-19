@@ -23,7 +23,7 @@ inline float fastAtan2_deg(float y, float x) {
  * Computes the Harris responses in a blockSize x blockSize patch 
  * at given points in the image.
  */
-void HarrisResponses(const Image8U& img, const std::vector<Rect>& layerinfo,
+void HarrisResponses(const ImageView8U& img, const std::vector<Rect>& layerinfo,
                      std::vector<KeyPoint>& pts, int blockSize, float harris_k)
 {
     size_t ptidx, ptsize = pts.size();
@@ -70,7 +70,7 @@ void HarrisResponses(const Image8U& img, const std::vector<Rect>& layerinfo,
 /**
  * Computes the orientation (angle) of the keypoints.
  */
-void ICAngles(const Image8U& img, const std::vector<Rect>& layerinfo,
+void ICAngles(const ImageView8U& img, const std::vector<Rect>& layerinfo,
               std::vector<KeyPoint>& pts, const std::vector<int>& u_max, int half_k)
 {
     int step = img.step;
@@ -109,7 +109,7 @@ void ICAngles(const Image8U& img, const std::vector<Rect>& layerinfo,
 /**
  * Computes the ORB descriptors for the given keypoints.
  */
-void computeOrbDescriptors(const Image8U& imagePyramid, const std::vector<Rect>& layerInfo,
+void computeOrbDescriptors(const ImageView8U& imagePyramid, const std::vector<Rect>& layerInfo,
                            const std::vector<float>& layerScale, std::vector<KeyPoint>& keypoints,
                            Image8U& descriptors, const std::vector<Point2i>& _pattern, int dsize, int wta_k)
 {

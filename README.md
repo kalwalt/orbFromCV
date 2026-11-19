@@ -49,6 +49,36 @@ cmake --build .
 
 This builds the `orb_test` CLI, the `profile_orb` diagnostic tool, and the `orb_tests` test suite — none of which require OpenCV.
 
+### Using the library from another project
+
+The library is exported as the CMake target `StandaloneORB::orb` (CMake >= 3.11). Either install it and `find_package` it:
+
+```bash
+cmake -S . -B build && cmake --build build
+cmake --install build --prefix /some/prefix
+```
+
+```cmake
+find_package(StandaloneORB 0.2 REQUIRED)   # with CMAKE_PREFIX_PATH=/some/prefix
+target_link_libraries(my_app PRIVATE StandaloneORB::orb)
+```
+
+or `add_subdirectory(orbFromCV)` the repository: as a subproject it builds only the library (the `ORB_BUILD_TOOLS`, `ORB_BUILD_TESTS` and `ORB_INSTALL` options default to ON only for the top-level project). The headers install under `include/StandaloneORB/` and are included as `<orb.hpp>`. `tests/consumer/` is a minimal external project that CI builds against an installed copy.
+
+Pixels you already have (a decoded image, a camera frame, a sub-image) are passed without copying through a non-owning view:
+
+```cpp
+#include <orb.hpp>
+
+ImageView8U frame(pixels, width, height, strideInBytes); // stride >= width; defaults to width
+ORB orb;
+std::vector<KeyPoint> keypoints;
+Image8U descriptors;
+orb.detectAndCompute(frame, keypoints, descriptors);      // the buffer is only read
+```
+
+An owned `Image8U` converts to the view implicitly, so existing code keeps working.
+
 ## Usage
 
 The resulting executable `orb_test` accepts an image path as an argument:
@@ -145,13 +175,14 @@ against an installed OpenCV on arbitrary images.
 - Unit test suite, OpenCV 4.10.0 parity fixtures, and CI (Linux + Windows + ASan/UBSan).
 - Matches `cv::ORB` on the reference scene for all 500 keypoints (see above).
 - Constructor validation: unsupported parameters (`firstLevel != 0`, `wta_k` outside 2–4, ...) throw `std::invalid_argument` ([issue #23](https://github.com/kalwalt/orbFromCV/issues/23)).
+- CMake package (`find_package(StandaloneORB)`, `StandaloneORB::orb`) and a non-owning `ImageView8U` input, so a caller's buffer is read in place ([issue #28](https://github.com/kalwalt/orbFromCV/issues/28)).
 - Performance hotspots fixed: grid-based FAST non-maximal suppression ([issue #7](https://github.com/kalwalt/orbFromCV/issues/7)) and a row-accumulated Gaussian blur ([issue #13](https://github.com/kalwalt/orbFromCV/issues/13)).
 
 **Known limitations / open work:**
 - **Performance**: this is still a single-threaded, scalar (non-SIMD) implementation, and noticeably slower than OpenCV's SIMD/IPP/multi-threaded build as a result. A SIMD variant is planned ([issue #19](https://github.com/kalwalt/orbFromCV/issues/19)).
 - **Orientation angle**: `std::atan2` instead of `fastAtan2` ([issue #49](https://github.com/kalwalt/orbFromCV/issues/49)); descriptors can differ from OpenCV's by a few bits at some keypoints.
 - **`firstLevel`**: only 0 is supported; OpenCV's upscaled levels below the input are not implemented.
-- WebAssembly build and CI job ([issue #27](https://github.com/kalwalt/orbFromCV/issues/27)) and a CMake package ([issue #28](https://github.com/kalwalt/orbFromCV/issues/28)) are planned for v0.2.0.
+- WebAssembly build and CI job ([issue #27](https://github.com/kalwalt/orbFromCV/issues/27)) is planned for v0.2.0.
 
 Track ongoing work via the [issue tracker](https://github.com/kalwalt/orbFromCV/issues). Contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md).
 

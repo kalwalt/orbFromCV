@@ -78,7 +78,7 @@ AxisMapping buildAxisMapping(int srcSize, int dstSize) {
 
 } // namespace
 
-void resizeBilinear(const Image8U& src, Image8U& dst, int new_width, int new_height) {
+void resizeBilinear(const ImageView8U& src, Image8U& dst, int new_width, int new_height) {
     if (new_width == 0 || new_height == 0) return;
 
     dst = Image8U(new_width, new_height);
@@ -115,7 +115,7 @@ void resizeBilinear(const Image8U& src, Image8U& dst, int new_width, int new_hei
     }
 }
 
-void gaussianBlur7x7(const Image8U& src, Image8U& dst) {
+void gaussianBlur7x7(const ImageView8U& src, Image8U& dst) {
     if (src.cols == 0 || src.rows == 0) return;
 
     const int cols = src.cols, rows = src.rows;

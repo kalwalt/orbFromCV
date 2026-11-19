@@ -1,0 +1,7 @@
+@PACKAGE_INIT@
+
+# find_package(StandaloneORB) -> imported target StandaloneORB::orb
+# (static library, headers under <prefix>/include/StandaloneORB).
+include("${CMAKE_CURRENT_LIST_DIR}/StandaloneORBTargets.cmake")
+
+check_required_components(StandaloneORB)

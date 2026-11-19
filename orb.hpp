@@ -40,11 +40,16 @@ public:
         ScoreType scoreType = HARRIS_SCORE, int patchSize = 31, int fastThreshold = 20);
 
     // Detects keypoints and computes descriptors
-    // image: Input 8-bit grayscale image
+    // image: Input 8-bit grayscale image, as a non-owning view (pointer, cols,
+    //        rows, step >= cols). The buffer is only read; level 0 of the
+    //        pyramid is the view itself, so nothing is copied. An Image8U
+    //        converts implicitly. An empty view (cols or rows 0) clears the
+    //        outputs and returns; a malformed one (null data with a non-zero
+    //        size, negative size, step < cols) throws std::invalid_argument.
     // keypoints: Extracted keypoints
     // descriptors: Output descriptors (each row corresponds to a keypoint)
     // stageTimings: if non-null, appended with per-stage elapsed time
-    void detectAndCompute(const Image8U& image, std::vector<KeyPoint>& keypoints, Image8U& descriptors,
+    void detectAndCompute(const ImageView8U& image, std::vector<KeyPoint>& keypoints, Image8U& descriptors,
                           std::vector<StageTiming>* stageTimings = nullptr);
 
 private:

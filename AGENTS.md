@@ -13,6 +13,16 @@ cmake --build .
 ```
 Run: `./orb_test <path_to_image>`
 
+The library target is `orb_lib`, exported and aliased as `StandaloneORB::orb`;
+link that name everywhere (tools, tests, consumers). `ORB_BUILD_TOOLS`,
+`ORB_BUILD_TESTS` and `ORB_INSTALL` default to ON only for the top-level
+project. Public headers install under `include/StandaloneORB/`; `stb_image.h`
+is tools-only and not installed. `tests/consumer/` is the external
+`find_package` smoke test CI runs against an installed prefix. Read-only image
+parameters take `ImageView8U` (pointer, cols, rows, step); `Image8U` converts
+implicitly. `detectAndCompute` never writes the caller's buffer: level 0 is the
+view, its blur goes to an owned image.
+
 ## Tests
 `tests/` holds a dependency-free unit suite (see `tests/test_framework.hpp`)
 covering `fast_detector.cpp`, `orb_core.cpp`, `image_utils.cpp`, and the
@@ -128,9 +138,11 @@ Co-Authored-By: (the agent model's name and attribution byline)
   after the base PR is squashed.
 - `Fixes #N` closes the issue only when the commit reaches `main`, i.e. at the
   `dev` → `main` release merge; issues stay open on `dev` until then.
-- Milestones match release tags (`v0.1.3`, `v0.2.0`). The release PR body carries
-  the release notes; after the merge: tag the merge commit, `gh release create
-  <tag> --verify-tag --notes-file ...`, close the milestone.
+- Milestones match release tags (`v0.1.3`, `v0.2.0`). `project(VERSION)` in
+  `CMakeLists.txt` is bumped to the upcoming tag in the release PR (the package
+  version file uses `SameMinorVersion`). The release PR body carries the release
+  notes; after the merge: tag the merge commit, `gh release create <tag>
+  --verify-tag --notes-file ...`, close the milestone.
 - Keep `docs/superpowers/plans/2026-11-18-open-issues-roadmap.md` in step: mark
   each task done in the PR that does it.
 - `dev` → `main` release PRs MUST be merged with **"Create a merge commit"**.
