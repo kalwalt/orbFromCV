@@ -71,6 +71,21 @@ inline f32x4 mul(f32x4 a, f32x4 b) { return {_mm_mul_ps(a.v, b.v)}; }
 inline f32x4 add(f32x4 a, f32x4 b) { return {_mm_add_ps(a.v, b.v)}; }
 inline i32x4 splat_i32(int32_t x) { return {_mm_set1_epi32(x)}; }
 inline i32x4 sub(i32x4 a, i32x4 b) { return {_mm_sub_epi32(a.v, b.v)}; }
+inline i32x4 add(i32x4 a, i32x4 b) { return {_mm_add_epi32(a.v, b.v)}; }
+// Low 32 bits of each lane product. SSE2 has no 32-bit mullo (that is
+// SSE4.1), so two 32x32->64 multiplies on the even and odd lanes are merged.
+inline i32x4 mul(i32x4 a, i32x4 b) {
+    __m128i even = _mm_mul_epu32(a.v, b.v);
+    __m128i odd = _mm_mul_epu32(_mm_srli_si128(a.v, 4), _mm_srli_si128(b.v, 4));
+    return {_mm_unpacklo_epi32(_mm_shuffle_epi32(even, _MM_SHUFFLE(0, 0, 2, 0)),
+                               _mm_shuffle_epi32(odd, _MM_SHUFFLE(0, 0, 2, 0)))};
+}
+template <int N> inline i32x4 shr_arith(i32x4 a) { return {_mm_srai_epi32(a.v, N)}; }
+// Four uint16 zero-extended to four int32. Exactly 8 bytes are read.
+inline i32x4 load_u16x4_as_i32x4(const uint16_t* p) {
+    __m128i h = _mm_loadl_epi64(reinterpret_cast<const __m128i*>(p));
+    return {_mm_unpacklo_epi16(h, _mm_setzero_si128())};
+}
 
 // Four bytes, zero-extended to four floats. Exactly 4 bytes are read.
 inline f32x4 load_u8x4_as_f32x4(const uint8_t* p) {
@@ -103,6 +118,12 @@ inline f32x4 mul(f32x4 a, f32x4 b) { return {vmulq_f32(a.v, b.v)}; }
 inline f32x4 add(f32x4 a, f32x4 b) { return {vaddq_f32(a.v, b.v)}; }
 inline i32x4 splat_i32(int32_t x) { return {vdupq_n_s32(x)}; }
 inline i32x4 sub(i32x4 a, i32x4 b) { return {vsubq_s32(a.v, b.v)}; }
+inline i32x4 add(i32x4 a, i32x4 b) { return {vaddq_s32(a.v, b.v)}; }
+inline i32x4 mul(i32x4 a, i32x4 b) { return {vmulq_s32(a.v, b.v)}; }
+template <int N> inline i32x4 shr_arith(i32x4 a) { return {vshrq_n_s32(a.v, N)}; }
+inline i32x4 load_u16x4_as_i32x4(const uint16_t* p) {
+    return {vreinterpretq_s32_u32(vmovl_u16(vld1_u16(p)))};
+}
 
 inline f32x4 load_u8x4_as_f32x4(const uint8_t* p) {
     uint32_t w;
@@ -131,6 +152,12 @@ inline f32x4 mul(f32x4 a, f32x4 b) { return {wasm_f32x4_mul(a.v, b.v)}; }
 inline f32x4 add(f32x4 a, f32x4 b) { return {wasm_f32x4_add(a.v, b.v)}; }
 inline i32x4 splat_i32(int32_t x) { return {wasm_i32x4_splat(x)}; }
 inline i32x4 sub(i32x4 a, i32x4 b) { return {wasm_i32x4_sub(a.v, b.v)}; }
+inline i32x4 add(i32x4 a, i32x4 b) { return {wasm_i32x4_add(a.v, b.v)}; }
+inline i32x4 mul(i32x4 a, i32x4 b) { return {wasm_i32x4_mul(a.v, b.v)}; }
+template <int N> inline i32x4 shr_arith(i32x4 a) { return {wasm_i32x4_shr(a.v, N)}; }
+inline i32x4 load_u16x4_as_i32x4(const uint16_t* p) {
+    return {wasm_u32x4_extend_low_u16x8(wasm_v128_load64_zero(p))};
+}
 
 inline f32x4 load_u8x4_as_f32x4(const uint8_t* p) {
     v128_t b = wasm_v128_load32_zero(p);

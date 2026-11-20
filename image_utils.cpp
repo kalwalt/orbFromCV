@@ -82,7 +82,11 @@ AxisMapping buildAxisMapping(int srcSize, int dstSize) {
 void resizeBilinear(const ImageView8U& src, Image8U& dst, int new_width, int new_height,
                     bool useSimd) {
     if (new_width == 0 || new_height == 0) return;
+#if ORB_SIMD
+    const bool vec = useSimd;   // read only by the vector block below
+#else
     (void)useSimd;
+#endif
 
     dst = Image8U(new_width, new_height);
 
@@ -132,7 +136,23 @@ void resizeBilinear(const ImageView8U& src, Image8U& dst, int new_width, int new
         // Vertical pass: 16 fractional bits in total, rounded once. b0 + b1 =
         // 256 and h <= 65280 keep the sum below 2^24 + 2^15, and the result in
         // 0..255, so the clamp only documents the range.
-        for (int col = 0; col < new_width; ++col) {
+        int col = 0;
+#if ORB_SIMD
+        if (vec) {
+            // Four columns per step, the same integer expression lane-wise;
+            // the saturating store is the clamp. The horizontal pass stays
+            // scalar: its x0 lookup is a gather, which SSE2 does not have.
+            const simd::i32x4 vb0 = simd::splat_i32(b0), vb1 = simd::splat_i32(b1);
+            const simd::i32x4 half = simd::splat_i32(1 << 15);
+            for (; col + 4 <= new_width; col += 4) {
+                simd::i32x4 acc = simd::mul(vb0, simd::load_u16x4_as_i32x4(h0 + col));
+                acc = simd::add(acc, simd::mul(vb1, simd::load_u16x4_as_i32x4(h1 + col)));
+                acc = simd::shr_arith<16>(simd::add(acc, half));
+                simd::store_u8x4_saturated(out + col, acc);
+            }
+        }
+#endif
+        for (; col < new_width; ++col) {
             const int value = (b0 * h0[col] + b1 * h1[col] + (1 << 15)) >> 16;
             out[col] = static_cast<uint8_t>(std::min(255, std::max(0, value)));
         }
