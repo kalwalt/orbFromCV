@@ -3,8 +3,13 @@
 
 #include "orb_core.hpp"
 
-// Resizes an image using bilinear interpolation
-void resizeBilinear(const ImageView8U& src, Image8U& dst, int new_width, int new_height);
+// Resizes an image with bilinear interpolation, byte-identical to
+// cv2.resize(..., INTER_LINEAR_EXACT), the interpolation cv::ORB builds its
+// pyramid with (#40). useSimd selects the SSE2/NEON/WASM SIMD128 path of the
+// vertical pass when the library was built with one (orbSimdActive()); false
+// forces the scalar path. Both produce the same bytes.
+void resizeBilinear(const ImageView8U& src, Image8U& dst, int new_width, int new_height,
+                    bool useSimd = orbSimdActive());
 
 // Applies a 7x7 Gaussian blur with sigma=2.0, bit-identical to the blur
 // cv::ORB applies to its pyramid levels (float separable filter with a

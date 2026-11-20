@@ -79,8 +79,10 @@ AxisMapping buildAxisMapping(int srcSize, int dstSize) {
 
 } // namespace
 
-void resizeBilinear(const ImageView8U& src, Image8U& dst, int new_width, int new_height) {
+void resizeBilinear(const ImageView8U& src, Image8U& dst, int new_width, int new_height,
+                    bool useSimd) {
     if (new_width == 0 || new_height == 0) return;
+    (void)useSimd;
 
     dst = Image8U(new_width, new_height);
 
@@ -92,25 +94,46 @@ void resizeBilinear(const ImageView8U& src, Image8U& dst, int new_width, int new
     // accumulates those and rounds once over 16 bits. Output is therefore
     // byte-identical to cv2.resize(..., INTER_LINEAR_EXACT), the interpolation
     // ORB_Impl builds its pyramid with (#40).
+
+    // Horizontal pass of one source row: a0 + a1 = 256 and samples are <= 255,
+    // so the sum peaks at 65280 and fits uint16 without saturation (OpenCV
+    // saturates its uint16 intermediate here too). Computed once per source
+    // row and kept in a two-slot cache, since consecutive destination rows
+    // share a source row whenever the scale is below 2.
+    const int lastCol = src.cols - 1;
+    auto horizontalPass = [&](int srcRow, uint16_t* h) {
+        const uint8_t* s = src.ptr(srcRow);
+        for (int col = 0; col < new_width; ++col) {
+            const int x0 = x.offset[col];
+            const int x1 = std::min(x0 + 1, lastCol);
+            h[col] = static_cast<uint16_t>(x.weight0[col] * s[x0] + x.weight1[col] * s[x1]);
+        }
+    };
+    std::vector<uint16_t> hrow[2] = {std::vector<uint16_t>(new_width), std::vector<uint16_t>(new_width)};
+    int cachedRow[2] = {-1, -1};
+    auto cachedPass = [&](int srcRow, int otherRow) -> const uint16_t* {
+        for (int i = 0; i < 2; ++i)
+            if (cachedRow[i] == srcRow) return hrow[i].data();
+        // Evict the slot that does not hold the other row this output needs.
+        const int slot = (cachedRow[0] == otherRow) ? 1 : 0;
+        horizontalPass(srcRow, hrow[slot].data());
+        cachedRow[slot] = srcRow;
+        return hrow[slot].data();
+    };
+
     for (int row = 0; row < new_height; ++row) {
-        const int y0 = y.offset[row], y1 = y0 + 1;
+        const int y0 = y.offset[row];
+        const int y1 = std::min(y0 + 1, src.rows - 1);
         const int b0 = y.weight0[row], b1 = y.weight1[row];
-        const uint8_t* row0 = src.ptr(y0);
-        const uint8_t* row1 = src.ptr(std::min(y1, src.rows - 1));
+        const uint16_t* h0 = cachedPass(y0, y1);
+        const uint16_t* h1 = cachedPass(y1, y0);
         uint8_t* out = dst.ptr(row);
 
+        // Vertical pass: 16 fractional bits in total, rounded once. b0 + b1 =
+        // 256 and h <= 65280 keep the sum below 2^24 + 2^15, and the result in
+        // 0..255, so the clamp only documents the range.
         for (int col = 0; col < new_width; ++col) {
-            const int x0 = x.offset[col], x1 = x0 + 1;
-            const int a0 = x.weight0[col], a1 = x.weight1[col];
-
-            // Horizontal pass: 8 fractional bits, since a0 + a1 = 256 and
-            // samples are <= 255, so the sum peaks at 65280 and needs no
-            // saturation (OpenCV saturates its uint16 intermediate here too).
-            const int h0 = a0 * row0[x0] + a1 * row0[std::min(x1, src.cols - 1)];
-            const int h1 = a0 * row1[x0] + a1 * row1[std::min(x1, src.cols - 1)];
-
-            // Vertical pass: 16 fractional bits in total, rounded once.
-            const int value = (b0 * h0 + b1 * h1 + (1 << 15)) >> 16;
+            const int value = (b0 * h0[col] + b1 * h1[col] + (1 << 15)) >> 16;
             out[col] = static_cast<uint8_t>(std::min(255, std::max(0, value)));
         }
     }
