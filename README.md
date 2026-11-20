@@ -111,6 +111,16 @@ The resulting executable `orb_test` accepts an image path as an argument:
 
 It will load the image, detect up to 500 keypoints, compute their descriptors, and print the details of the first detected feature to the console.
 
+### Multithreading
+
+`ORB` runs on one thread by default. `setNumThreads(n)` lets `detectAndCompute` split the pyramid resize, the FAST detection and the Gaussian blur into row bands over `n` threads (a fixed pool owned by the `ORB` object; copies share it). The output is identical for every thread count: bands write disjoint rows and are merged in order, so keypoints, their order and the descriptor bytes do not change. The call returns the effective count, which is always 1 on a wasm32 build without pthreads.
+
+```cpp
+ORB orb;
+orb.setNumThreads(4);
+orb.detectAndCompute(image, keypoints, descriptors);
+```
+
 ## Diagnostic Tools
 
 ### `profile_orb` — per-stage timing breakdown
@@ -119,7 +129,7 @@ Always built, no external dependencies. Reports how much time `ORB::detectAndCom
 
 ```bash
 cmake --build build --target profile_orb
-./build/profile_orb <path_to_image> [repeats]
+./build/profile_orb <path_to_image> [repeats] [threads]
 ```
 
 On a real photo, FAST detection is currently the largest stage, followed by Gaussian blur and pyramid construction. Two earlier hotspots have been fixed: the O(n²) non-maximal suppression in FAST ([issue #7](https://github.com/kalwalt/orbFromCV/issues/7)) and the column-strided Gaussian blur ([issue #13](https://github.com/kalwalt/orbFromCV/issues/13)). The blur got slower again in v0.1.3, when it was changed to compute exactly what `cv::ORB` computes ([issue #39](https://github.com/kalwalt/orbFromCV/issues/39)); the SIMD work in [issue #19](https://github.com/kalwalt/orbFromCV/issues/19) is meant to recover that.
@@ -153,8 +163,10 @@ cmake --build build --target orb_tests
 ctest --test-dir build --output-on-failure
 ```
 
-Every push and pull request is built and tested automatically on Linux and
-Windows, plus a Clang ASan/UBSan job, via the [CI workflow](.github/workflows/ci.yml).
+Every push and pull request is built and tested automatically on Linux (x86-64
+and arm64) and Windows, each with the SIMD kernels on and off, plus a Clang
+ASan/UBSan job, a ThreadSanitizer job and a wasm32 job, via the
+[CI workflow](.github/workflows/ci.yml).
 
 The suite also contains a parity test suite (`tests/test_opencv_ref.cpp`) that
 compares every stage and the end-to-end pipeline against ground truth produced

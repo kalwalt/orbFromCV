@@ -1,7 +1,12 @@
 #include "thread_pool.hpp"
 #include "test_framework.hpp"
+#include <atomic>
 #include <stdexcept>
 #include <vector>
+
+// A wasm32 build without -pthread has no std::thread to start; ORB clamps
+// setNumThreads to 1 there (test_orb.cpp) and these cases are compiled out.
+#if !(defined(__EMSCRIPTEN__) && !defined(__EMSCRIPTEN_PTHREADS__))
 
 TEST_CASE("ThreadPool::parallelFor: covers the range once, in band order, with empty bands skipped") {
     ThreadPool pool(3);
@@ -24,7 +29,9 @@ TEST_CASE("ThreadPool::parallelFor: an exception in a band reaches the caller") 
         pool.parallelFor(0, 8, [](int, int b, int) { if (b > 0) throw std::runtime_error("band"); });
     } catch (const std::runtime_error&) { caught = true; }
     CHECK(caught);
-    int sum = 0;  // the pool is still usable afterwards
+    std::atomic<int> sum(0);  // the pool is still usable afterwards
     pool.parallelFor(0, 8, [&](int, int b, int e) { sum += e - b; });
-    CHECK_EQ(sum, 8);
+    CHECK_EQ(sum.load(), 8);
 }
+
+#endif // threads available

@@ -45,6 +45,14 @@ ctest --test-dir build -C Debug --output-on-failure
   scalar twin and both must give identical bytes; CI builds every platform
   with the option ON and OFF. `orbSimdActive()` tells which path a build runs.
   Kernels arrive one PR per task of `docs/superpowers/plans/2026-11-19-simd-and-threads.md`.
+- Threads: `ORB::setNumThreads(n)` owns a `ThreadPool` (`thread_pool.hpp`) of
+  n - 1 workers; the three kernels take a trailing `ThreadPool* pool` and run
+  their row loops through `parallelFor` in contiguous bands merged in order, so
+  output never depends on the thread count. Kernels take `useSimd` and `pool`
+  so tests compare paths within one binary (`test_orb.cpp`: 1 vs N threads,
+  `test_image_utils.cpp` / `test_fast_detector.cpp`: vector vs scalar). CI job
+  `tsan` runs the suite under ThreadSanitizer; locally
+  `cmake -S . -B build-tsan -DCMAKE_BUILD_TYPE=Debug "-DCMAKE_CXX_FLAGS=-fsanitize=thread" "-DCMAKE_EXE_LINKER_FLAGS=-fsanitize=thread"`.
 - Sanitizers: `cmake -DORB_SANITIZE=ON` (clang/gcc ASan+UBSan, MSVC ASan; CI job
   `sanitizers`). UBSan flags casting an out-of-range int to `ORB::ScoreType`,
   so don't test "unknown scoreType" that way.
