@@ -5,3 +5,6 @@ build_test/
 .venv/
 
 .idea/
+
+# Claude Code personal notes
+.claude.local.md
