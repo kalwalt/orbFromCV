@@ -78,15 +78,88 @@ AxisMapping buildAxisMapping(int srcSize, int dstSize) {
     return m;
 }
 
+// Horizontal pass of one source row: a0 + a1 = 256 and samples are <= 255,
+// so the sum peaks at 65280 and fits uint16 without saturation (OpenCV
+// saturates its uint16 intermediate here too).
+void resizeHorizontalPass(const ImageView8U& src, const AxisMapping& x, int newWidth, int srcRow, uint16_t* h) {
+    const uint8_t* s = src.ptr(srcRow);
+    const int lastCol = src.cols - 1;
+    for (int col = 0; col < newWidth; ++col) {
+        const int x0 = x.offset[col];
+        const int x1 = std::min(x0 + 1, lastCol);
+        h[col] = static_cast<uint16_t>(x.weight0[col] * s[x0] + x.weight1[col] * s[x1]);
+    }
+}
+
+// Destination rows [rowBegin, rowEnd) of resizeBilinear. Both passes are
+// fixed point, as in OpenCV's INTER_LINEAR_EXACT: the horizontal pass carries
+// 8 fractional bits per sample, the vertical pass accumulates those and rounds
+// once over 16 bits, so the output is byte-identical to
+// cv2.resize(..., INTER_LINEAR_EXACT), the interpolation ORB_Impl builds its
+// pyramid with (#40). The horizontal pass runs once per source row into a
+// two-slot cache local to the band: a band's first row computes both of its
+// source rows, after that consecutive rows share one whenever the scale is
+// below 2.
+void resizeRows(const ImageView8U& src, Image8U& dst, const AxisMapping& x, const AxisMapping& y,
+                bool vec, int rowBegin, int rowEnd) {
+    const int newWidth = dst.cols;
+    std::vector<uint16_t> hrow[2] = {std::vector<uint16_t>(newWidth), std::vector<uint16_t>(newWidth)};
+    int cachedRow[2] = {-1, -1};
+    auto cachedPass = [&](int srcRow, int otherRow) -> const uint16_t* {
+        for (int i = 0; i < 2; ++i)
+            if (cachedRow[i] == srcRow) return hrow[i].data();
+        // Evict the slot that does not hold the other row this output needs.
+        const int slot = (cachedRow[0] == otherRow) ? 1 : 0;
+        resizeHorizontalPass(src, x, newWidth, srcRow, hrow[slot].data());
+        cachedRow[slot] = srcRow;
+        return hrow[slot].data();
+    };
+    (void)vec;
+
+    for (int row = rowBegin; row < rowEnd; ++row) {
+        const int y0 = y.offset[row];
+        const int y1 = std::min(y0 + 1, src.rows - 1);
+        const int b0 = y.weight0[row], b1 = y.weight1[row];
+        const uint16_t* h0 = cachedPass(y0, y1);
+        const uint16_t* h1 = cachedPass(y1, y0);
+        uint8_t* out = dst.ptr(row);
+
+        // Vertical pass: 16 fractional bits in total, rounded once. b0 + b1 =
+        // 256 and h <= 65280 keep the sum below 2^24 + 2^15, and the result in
+        // 0..255, so the clamp only documents the range.
+        int col = 0;
+#if ORB_SIMD
+        if (vec) {
+            // Four columns per step, the same integer expression lane-wise;
+            // the saturating store is the clamp. The horizontal pass stays
+            // scalar: its x0 lookup is a gather, which SSE2 does not have.
+            const simd::i32x4 vb0 = simd::splat_i32(b0), vb1 = simd::splat_i32(b1);
+            const simd::i32x4 half = simd::splat_i32(1 << 15);
+            for (; col + 4 <= newWidth; col += 4) {
+                simd::i32x4 acc = simd::mul(vb0, simd::load_u16x4_as_i32x4(h0 + col));
+                acc = simd::add(acc, simd::mul(vb1, simd::load_u16x4_as_i32x4(h1 + col)));
+                acc = simd::shr_arith<16>(simd::add(acc, half));
+                simd::store_u8x4_saturated(out + col, acc);
+            }
+        }
+#endif
+        for (; col < newWidth; ++col) {
+            const int value = (b0 * h0[col] + b1 * h1[col] + (1 << 15)) >> 16;
+            out[col] = static_cast<uint8_t>(std::min(255, std::max(0, value)));
+        }
+    }
+}
+
 } // namespace
 
 void resizeBilinear(const ImageView8U& src, Image8U& dst, int new_width, int new_height,
                     bool useSimd, ThreadPool* pool) {
     if (new_width == 0 || new_height == 0) return;
 #if ORB_SIMD
-    const bool vec = useSimd;   // read only by the vector block below
+    const bool vec = useSimd;
 #else
     (void)useSimd;
+    const bool vec = false;
 #endif
 
     dst = Image8U(new_width, new_height);
@@ -94,78 +167,16 @@ void resizeBilinear(const ImageView8U& src, Image8U& dst, int new_width, int new
     const AxisMapping x = buildAxisMapping(src.cols, new_width);
     const AxisMapping y = buildAxisMapping(src.rows, new_height);
 
-    // Both passes are fixed point, as in OpenCV's INTER_LINEAR_EXACT: the
-    // horizontal pass carries 8 fractional bits per sample, the vertical pass
-    // accumulates those and rounds once over 16 bits. Output is therefore
-    // byte-identical to cv2.resize(..., INTER_LINEAR_EXACT), the interpolation
-    // ORB_Impl builds its pyramid with (#40).
-
-    // Horizontal pass of one source row: a0 + a1 = 256 and samples are <= 255,
-    // so the sum peaks at 65280 and fits uint16 without saturation (OpenCV
-    // saturates its uint16 intermediate here too). Computed once per source
-    // row and kept in a two-slot cache, since consecutive destination rows
-    // share a source row whenever the scale is below 2.
-    const int lastCol = src.cols - 1;
-    auto horizontalPass = [&](int srcRow, uint16_t* h) {
-        const uint8_t* s = src.ptr(srcRow);
-        for (int col = 0; col < new_width; ++col) {
-            const int x0 = x.offset[col];
-            const int x1 = std::min(x0 + 1, lastCol);
-            h[col] = static_cast<uint16_t>(x.weight0[col] * s[x0] + x.weight1[col] * s[x1]);
-        }
-    };
-    // Destination rows [rowBegin, rowEnd). The horizontal-pass cache is local
-    // to the band: a band's first row computes both of its source rows, after
-    // that consecutive rows share one whenever the scale is below 2.
-    auto rows = [&](int, int rowBegin, int rowEnd) {
-        std::vector<uint16_t> hrow[2] = {std::vector<uint16_t>(new_width), std::vector<uint16_t>(new_width)};
-        int cachedRow[2] = {-1, -1};
-        auto cachedPass = [&](int srcRow, int otherRow) -> const uint16_t* {
-            for (int i = 0; i < 2; ++i)
-                if (cachedRow[i] == srcRow) return hrow[i].data();
-            // Evict the slot that does not hold the other row this output needs.
-            const int slot = (cachedRow[0] == otherRow) ? 1 : 0;
-            horizontalPass(srcRow, hrow[slot].data());
-            cachedRow[slot] = srcRow;
-            return hrow[slot].data();
-        };
-
-        for (int row = rowBegin; row < rowEnd; ++row) {
-            const int y0 = y.offset[row];
-            const int y1 = std::min(y0 + 1, src.rows - 1);
-            const int b0 = y.weight0[row], b1 = y.weight1[row];
-            const uint16_t* h0 = cachedPass(y0, y1);
-            const uint16_t* h1 = cachedPass(y1, y0);
-            uint8_t* out = dst.ptr(row);
-
-            // Vertical pass: 16 fractional bits in total, rounded once. b0 + b1 =
-            // 256 and h <= 65280 keep the sum below 2^24 + 2^15, and the result in
-            // 0..255, so the clamp only documents the range.
-            int col = 0;
-    #if ORB_SIMD
-            if (vec) {
-                // Four columns per step, the same integer expression lane-wise;
-                // the saturating store is the clamp. The horizontal pass stays
-                // scalar: its x0 lookup is a gather, which SSE2 does not have.
-                const simd::i32x4 vb0 = simd::splat_i32(b0), vb1 = simd::splat_i32(b1);
-                const simd::i32x4 half = simd::splat_i32(1 << 15);
-                for (; col + 4 <= new_width; col += 4) {
-                    simd::i32x4 acc = simd::mul(vb0, simd::load_u16x4_as_i32x4(h0 + col));
-                    acc = simd::add(acc, simd::mul(vb1, simd::load_u16x4_as_i32x4(h1 + col)));
-                    acc = simd::shr_arith<16>(simd::add(acc, half));
-                    simd::store_u8x4_saturated(out + col, acc);
-                }
-            }
-    #endif
-            for (; col < new_width; ++col) {
-                const int value = (b0 * h0[col] + b1 * h1[col] + (1 << 15)) >> 16;
-                out[col] = static_cast<uint8_t>(std::min(255, std::max(0, value)));
-            }
-        }
-
-    };
-    if (pool) pool->parallelFor(0, new_height, rows);
-    else rows(0, 0, new_height);
+    // Plain functions rather than nested lambdas: MSVC did not inline the
+    // captured-by-reference lambdas and the single-thread pyramid slowed by
+    // 45%; g++ and clang were indifferent.
+    if (pool) {
+        pool->parallelFor(0, new_height, [&](int, int rowBegin, int rowEnd) {
+            resizeRows(src, dst, x, y, vec, rowBegin, rowEnd);
+        });
+    } else {
+        resizeRows(src, dst, x, y, vec, 0, new_height);
+    }
 }
 
 void gaussianBlur7x7(const ImageView8U& src, Image8U& dst, bool useSimd, ThreadPool* pool) {

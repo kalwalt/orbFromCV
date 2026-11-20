@@ -59,7 +59,9 @@ public:
     // FAST detection and the blur (issue #19); default 1. n <= 0 counts as 1.
     // Returns the effective count: on a wasm32 build without pthreads it is
     // always 1. Output is identical for every thread count: the kernels split
-    // rows into bands and merge them in order. Copies of an ORB share its pool.
+    // rows into bands and merge them in order. Copies of an ORB share its pool,
+    // so two copies running detectAndCompute at the same time take turns in
+    // the kernels; give each its own setNumThreads call for full parallelism.
     int setNumThreads(int n);
     int numThreads() const { return numThreads_; }
 

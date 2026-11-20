@@ -4,7 +4,19 @@
 ThreadPool::ThreadPool(int workers) {
     const int n = std::max(1, workers);
     threads_.reserve(static_cast<size_t>(n));
-    for (int i = 0; i < n; ++i) threads_.emplace_back([this] { workerLoop(); });
+    try {
+        for (int i = 0; i < n; ++i) threads_.emplace_back([this] { workerLoop(); });
+    } catch (...) {
+        // A joinable std::thread destroyed by the unwinding would terminate
+        // the process; stop and join the workers that did start instead.
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            stop_ = true;
+        }
+        wake_.notify_all();
+        for (std::thread& t : threads_) t.join();
+        throw;
+    }
 }
 
 ThreadPool::~ThreadPool() {
@@ -51,7 +63,7 @@ void ThreadPool::parallelFor(int begin, int end, const std::function<void(int, i
     std::lock_guard<std::mutex> call(callMutex_);
     if (end <= begin) return;
 
-    const Job job{&body, begin, end, workers() + 1};
+    const Job job{&body, begin, end, bands()};
     {
         std::lock_guard<std::mutex> lock(mutex_);
         job_ = job;

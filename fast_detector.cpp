@@ -64,6 +64,9 @@ void detectFAST(const ImageView8U& img, std::vector<KeyPoint>& keypoints, int th
 #else
     (void)useSimd;
 #endif
+    // As OpenCV's FAST does; keeps the byte-wide vector path and the int
+    // scalar path on the same threshold.
+    threshold = std::max(0, std::min(threshold, 255));
     
     // We need a margin of 3 pixels to access the full circle
     const int margin = 3;
@@ -126,7 +129,7 @@ void detectFAST(const ImageView8U& img, std::vector<KeyPoint>& keypoints, int th
     // Rows [yBegin, yEnd), skipping the borders. Each band appends its raw
     // corners to its own vector (merged in band order below) and writes only
     // its own rows of response_grid, so bands share nothing.
-    std::vector<std::vector<KeyPoint>> perBand(pool ? pool->workers() + 1 : 1);
+    std::vector<std::vector<KeyPoint>> perBand(static_cast<size_t>(pool ? pool->bands() : 1));
     auto band = [&](int bandIndex, int yBegin, int yEnd) {
         std::vector<KeyPoint>& out = perBand[static_cast<size_t>(bandIndex)];
         for (int y = yBegin; y < yEnd; ++y) {
@@ -139,7 +142,7 @@ void detectFAST(const ImageView8U& img, std::vector<KeyPoint>& keypoints, int th
                 // segment test runs lane-wise on bytes (saturating v +- t, unsigned
                 // compares); only the lanes it accepts reach fullTest, in
                 // ascending order, so nothing about the output changes.
-                const uint8_t tByte = static_cast<uint8_t>(std::max(0, std::min(threshold, 255)));
+                const uint8_t tByte = static_cast<uint8_t>(threshold);
                 const simd::u8x16 t = simd::splat_u8(tByte);
                 const simd::u8x16 one = simd::splat_u8(1), eight = simd::splat_u8(8);
                 const simd::u8x16 ones = simd::cmpgt(one, simd::splat_u8(0)); // all lanes set

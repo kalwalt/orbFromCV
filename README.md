@@ -53,7 +53,7 @@ Build options (all `-D<name>=ON|OFF` on the `cmake` line):
 
 | Option | Default | Effect |
 |---|---|---|
-| `ORB_ENABLE_SIMD` | `ON` | SSE2 / NEON / WASM SIMD128 kernels where the compiler targets them (`-msimd128` is added for wasm32). Every kernel keeps a scalar path that produces the same bytes, so `OFF` only costs speed; `orbSimdActive()` reports which one a build uses. The explicit kernels (blur, resize, FAST) land one PR at a time under [issue #19](https://github.com/kalwalt/orbFromCV/issues/19); until then the option only enables compiler auto-vectorisation on wasm32. |
+| `ORB_ENABLE_SIMD` | `ON` | SSE2 / NEON / WASM SIMD128 kernels where the compiler targets them (`-msimd128` is added for wasm32). Every kernel keeps a scalar path that produces the same bytes, so `OFF` only costs speed; `orbSimdActive()` reports which one a build uses. The blur, resize and FAST kernels have explicit vector paths ([issue #19](https://github.com/kalwalt/orbFromCV/issues/19)). |
 | `ORB_SANITIZE` | `OFF` | AddressSanitizer + UndefinedBehaviorSanitizer on every target. |
 | `ORB_BUILD_TOOLS`, `ORB_BUILD_TESTS`, `ORB_INSTALL` | `ON` top-level, `OFF` as a subproject | Tools, test suite, install rules. |
 | `BUILD_OPENCV_COMPARISON` | `OFF` | The `compare_orb` tool (needs OpenCV). |
