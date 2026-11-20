@@ -163,7 +163,7 @@ TEST_CASE("gaussianBlur7x7: vector path reads nothing past a tight row") {
 - Consumes: `ORB_SIMD`, `f32x4` layout conventions from Tasks 1-2.
 - Produces: `void resizeBilinear(const ImageView8U& src, Image8U& dst, int new_width, int new_height, bool useSimd = orbSimdActive());`. `simd_utils.hpp` gains `struct i32x4` with `load`, `store`, `splat(int)`, `mul` (low 32 bits), `add`, `shr_arith(i32x4, 16)`, `load_u16x4_as_i32x4(const uint16_t*)`, and reuses `store_u8x4_saturated`.
 
-- [ ] **Step 1: Write the failing tests:**
+- [x] **Step 1: Write the failing tests:**
 
 ```cpp
 TEST_CASE("resizeBilinear: vector path equals the scalar path byte for byte") {
@@ -188,17 +188,17 @@ TEST_CASE("resizeBilinear: vector path reads nothing past a tight row") {
 }
 ```
 
-- [ ] **Step 2: Run the suite to verify it fails** (5-argument call).
+- [x] **Step 2: Run the suite to verify it fails** (5-argument call).
 
-- [ ] **Step 3: Restructure the scalar code, no SIMD yet.** Keep a two-row cache of the horizontal pass: `std::vector<uint16_t> hrow[2]` of `new_width` entries, each holding `a0 * row[x0] + a1 * row[x1]` for one source row (max 65280 fits), and the index of the source row it holds; a destination row needs source rows `y0` and `min(y0 + 1, rows - 1)`, which is computed once per source row instead of once per destination row that touches it. The vertical pass reads the two cached rows: `(b0 * h0 + b1 * h1 + (1 << 15)) >> 16`, clamped. Run the suite: the existing `resizeBilinear` tests and the OpenCV pyramid fixtures must still pass; commit `perf(pyramid): compute the horizontal resize pass once per source row`.
+- [x] **Step 3: Restructure the scalar code, no SIMD yet.** Keep a two-row cache of the horizontal pass: `std::vector<uint16_t> hrow[2]` of `new_width` entries, each holding `a0 * row[x0] + a1 * row[x1]` for one source row (max 65280 fits), and the index of the source row it holds; a destination row needs source rows `y0` and `min(y0 + 1, rows - 1)`, which is computed once per source row instead of once per destination row that touches it. The vertical pass reads the two cached rows: `(b0 * h0 + b1 * h1 + (1 << 15)) >> 16`, clamped. Run the suite: the existing `resizeBilinear` tests and the OpenCV pyramid fixtures must still pass; commit `perf(pyramid): compute the horizontal resize pass once per source row`.
 
-- [ ] **Step 4: Vectorise the vertical pass.** Under `ORB_SIMD && useSimd`, `col` while `col + 4 <= new_width`: `load_u16x4_as_i32x4` of both cached rows, `add(add(mul(splat(b0), h0), mul(splat(b1), h1)), splat(1 << 15))`, `shr_arith(…, 16)`, `store_u8x4_saturated`. Scalar tail. The horizontal pass stays scalar: its source index `x0` is a gather, which SSE2 cannot do.
+- [x] **Step 4: Vectorise the vertical pass.** Under `ORB_SIMD && useSimd`, `col` while `col + 4 <= new_width`: `load_u16x4_as_i32x4` of both cached rows, `add(add(mul(splat(b0), h0), mul(splat(b1), h1)), splat(1 << 15))`, `shr_arith(…, 16)`, `store_u8x4_saturated`. Scalar tail. The horizontal pass stays scalar: its source index `x0` is a gather, which SSE2 cannot do.
 
-- [ ] **Step 5: Run the suite** on SIMD, SIMD-off, ASan and wasm builds: PASS, pyramid fixtures included.
+- [x] **Step 5: Run the suite** on SIMD, SIMD-off, ASan and wasm builds: PASS, pyramid fixtures included.
 
-- [ ] **Step 6: Measure** and apply the 15% rule separately to step 3 and step 4 (two tables in the PR body).
+- [x] **Step 6: Measure** and apply the 15% rule separately to step 3 and step 4 (two tables in the PR body).
 
-- [ ] **Step 7: Commit** `perf(pyramid): vector path for the vertical resize pass`, `Refs #19`. Mark Task 3 done.
+- [x] **Step 7: Commit** `perf(pyramid): vector path for the vertical resize pass`, `Refs #19`. Mark Task 3 done.
 
 ---
 

@@ -334,6 +334,27 @@ TEST_CASE("gaussianBlur7x7: images with a dimension of 1-3 px stay in bounds") {
     }
 }
 
+TEST_CASE("resizeBilinear: vector path equals the scalar path byte for byte") {
+    const int srcSizes[][2] = {{1, 1}, {2, 3}, {5, 4}, {17, 9}, {64, 48}, {97, 71}};
+    const int dstSizes[][2] = {{1, 1}, {3, 2}, {4, 5}, {13, 7}, {53, 40}, {81, 59}, {120, 90}};
+    for (const auto& s : srcSizes) for (const auto& d : dstSizes) {
+        Image8U src = pseudoRandomImage(s[0], s[1], 4242u + s[0] + d[0]);
+        Image8U scalar, vector;
+        resizeBilinear(src, scalar, d[0], d[1], false);
+        resizeBilinear(src, vector, d[0], d[1], true);
+        CHECK_EQ(vector.data, scalar.data);
+    }
+}
+
+TEST_CASE("resizeBilinear: vector path reads nothing past a tight row") {
+    for (int w = 7; w <= 40; ++w) {
+        std::vector<uint8_t> buf(static_cast<size_t>(w) * 6, 120);
+        Image8U out;
+        resizeBilinear(ImageView8U(buf.data(), w, 6), out, w * 5 / 6, 5, true);
+        CHECK_EQ(out.rows, 5);
+    }
+}
+
 TEST_CASE("gaussianBlur7x7: vector path equals the scalar path byte for byte") {
     // Widths around every vector boundary, heights that give 1-row and multi-row column passes.
     const int widths[] = {1, 2, 3, 4, 5, 7, 8, 9, 15, 16, 17, 31, 32, 33, 40, 63, 64, 65, 100};
