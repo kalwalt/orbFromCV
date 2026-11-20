@@ -252,6 +252,35 @@ Image8U seededNoise(int w, int h, uint32_t seed, uint8_t low, uint8_t span) {
 
 } // namespace
 
+TEST_CASE("detectFAST: vector path equals the scalar path, keypoints in the same order") {
+    for (uint32_t seed = 1; seed <= 8; ++seed) {
+        // Widths across the 16-lane boundary, plus the oracle images of the FAST-9 test.
+        const int w = 7 + static_cast<int>(seed) * 11, h = 9 + static_cast<int>(seed) * 5;
+        Image8U img = seededNoise(w, h, seed, 90, 60);
+        for (bool nms : {false, true}) {
+            std::vector<KeyPoint> scalar, vector;
+            detectFAST(img, scalar, 20, nms, false);
+            detectFAST(img, vector, 20, nms, true);
+            CHECK_EQ(vector.size(), scalar.size());
+            for (size_t i = 0; i < scalar.size() && i < vector.size(); ++i) {
+                CHECK_EQ(vector[i].pt.x, scalar[i].pt.x);
+                CHECK_EQ(vector[i].pt.y, scalar[i].pt.y);
+                CHECK_EQ(vector[i].response, scalar[i].response);
+            }
+        }
+    }
+}
+
+TEST_CASE("detectFAST: vector path reads nothing past a tight row") {
+    for (int w = 7; w <= 40; ++w) {
+        std::vector<uint8_t> buf(static_cast<size_t>(w) * 9, 50);
+        buf[4 * w + w / 2] = 220; // one dot, so the candidate path runs
+        std::vector<KeyPoint> kps;
+        detectFAST(ImageView8U(buf.data(), w, 9), kps, 20, true, true);
+        CHECK_EQ(kps.size(), static_cast<size_t>(w >= 7 ? 1 : 0));
+    }
+}
+
 TEST_CASE("detectFAST: a 9-arc covering only two compass pixels is a corner, all 16 rotations") {
     // Circle pixels start..start+8 brighter than the centre. For start = 1 the
     // arc 1..9 touches only compass pixels 4 and 8, which the old 3-of-4
