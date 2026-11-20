@@ -23,6 +23,16 @@ parameters take `ImageView8U` (pointer, cols, rows, step); `Image8U` converts
 implicitly. `detectAndCompute` never writes the caller's buffer: level 0 is the
 view, its blur goes to an owned image.
 
+- WebAssembly: `emcmake cmake -G Ninja` and `cmake --build` from PowerShell or
+  cmd (the emsdk env script does not take in a POSIX shell). Outputs are
+  `<build>/orb_test.js|.wasm`, `orb_tests.js`, `profile_orb.js`; run them with
+  `node`. To confirm a kernel vectorised: `wasm-dis <file>.wasm | grep -c -E
+  "(v128|i8x16|i16x8|i32x4|f32x4)\."` (no `wasm-objdump` in the emsdk).
+- MSVC does not inline nested lambdas captured by reference inside hot loops
+  (`resizeBilinear` lost 45% at 1 thread that way); put a band's body in a free
+  function in an anonymous namespace and call it from the lambda.
+- MSVC warning C4267 in the tools is pre-existing; leave it.
+
 ## Tests
 `tests/` holds a dependency-free unit suite (see `tests/test_framework.hpp`)
 covering `fast_detector.cpp`, `orb_core.cpp`, `image_utils.cpp`, and the
@@ -53,11 +63,35 @@ ctest --test-dir build -C Debug --output-on-failure
   `test_image_utils.cpp` / `test_fast_detector.cpp`: vector vs scalar). CI job
   `tsan` runs the suite under ThreadSanitizer; locally
   `cmake -S . -B build-tsan -DCMAKE_BUILD_TYPE=Debug "-DCMAKE_CXX_FLAGS=-fsanitize=thread" "-DCMAKE_EXE_LINKER_FLAGS=-fsanitize=thread"`.
+- Binaries: `build/tests/Debug/orb_tests.exe` on MSVC (multi-config),
+  `build/tests/orb_tests` elsewhere; `ctest` finds either.
+- Test helpers (`fixtureScene`, `noise`, `sameOutput`, ...) live in anonymous
+  namespaces per translation unit; equal names in different test files are
+  intended, don't hoist them into a shared header.
+- `CHECK` is not thread-safe: a test that runs a `ThreadPool` records per-band
+  results in preallocated slots and checks them on the main thread afterwards.
+- TSan in WSL needs ASLR off: `setarch $(uname -m) -R ./orb_tests`, or every
+  run dies with "unexpected memory mapping"; g++ `-fsanitize=thread` works, no
+  clang is needed.
 - Sanitizers: `cmake -DORB_SANITIZE=ON` (clang/gcc ASan+UBSan, MSVC ASan; CI job
   `sanitizers`). UBSan flags casting an out-of-range int to `ORB::ScoreType`,
   so don't test "unknown scoreType" that way.
 - Summary line: `N/M tests passed (k expected failures, see CHECK_XFAIL)`; an
   expected failure that starts passing fails the suite as XPASS.
+
+## Benchmarks and Profiling
+- Compare against a base revision built in its own worktree (`git worktree add
+  <dir> <sha>`), run both binaries interleaved for 3 rounds and report medians;
+  machine load moves the numbers by 30%, so never compare runs from different
+  sessions or against figures in old PRs.
+- `profile_orb [image] [repeats] [threads]` (defaults `pinball.jpg 10 1`). Its
+  `fast_detection` timer covers detection plus the per-level sort and cut of
+  keypoints, not `detectFAST` alone.
+- When the pipeline profile does not explain a scaling result, time the kernel
+  alone (`detectFAST`, `resizeBilinear`, `gaussianBlur7x7` with `pool ==
+  nullptr` vs a pool) in a scratch program linked against `orb_lib`.
+- `perf` commit bodies and PR descriptions carry the numbers with compiler,
+  platform and SIMD state (`ORB_ENABLE_SIMD=ON`, `-msimd128` on wasm).
 
 ## File-Scoped Commands
 | Task | Command |
