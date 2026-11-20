@@ -334,6 +334,34 @@ TEST_CASE("gaussianBlur7x7: images with a dimension of 1-3 px stay in bounds") {
     }
 }
 
+TEST_CASE("gaussianBlur7x7: vector path equals the scalar path byte for byte") {
+    // Widths around every vector boundary, heights that give 1-row and multi-row column passes.
+    const int widths[] = {1, 2, 3, 4, 5, 7, 8, 9, 15, 16, 17, 31, 32, 33, 40, 63, 64, 65, 100};
+    const int heights[] = {1, 2, 3, 4, 7, 8, 13};
+    for (int w : widths) for (int h : heights) {
+        Image8U src = pseudoRandomImage(w, h, 777u + w * 31 + h);
+        Image8U scalar, vector;
+        gaussianBlur7x7(src, scalar, false);
+        gaussianBlur7x7(src, vector, true);
+        CHECK_EQ(vector.data, scalar.data);
+    }
+}
+
+TEST_CASE("gaussianBlur7x7: vector path reads nothing past a tight row") {
+    // Heap buffer sized exactly cols*rows, step == cols: ASan sees any overread.
+    for (int w = 7; w <= 40; ++w) {
+        std::vector<uint8_t> buf(static_cast<size_t>(w) * 5, 90);
+        ImageView8U view(buf.data(), w, 5);
+        Image8U out;
+        gaussianBlur7x7(view, out, true);
+        CHECK_EQ(out.cols, w);
+    }
+    std::vector<uint8_t> big(static_cast<size_t>(16385) * 3, 90);
+    Image8U out;
+    gaussianBlur7x7(ImageView8U(big.data(), 16385, 3), out, true);
+    CHECK_EQ(out.cols, 16385);
+}
+
 TEST_CASE("gaussianBlur7x7: safe to call in-place (dst aliasing src)") {
     // ORB::detectAndCompute calls gaussianBlur7x7(imagePyramid[level],
     // imagePyramid[level]) - src and dst are the same object. An earlier

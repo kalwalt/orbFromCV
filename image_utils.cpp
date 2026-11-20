@@ -1,4 +1,5 @@
 #include "image_utils.hpp"
+#include "simd_utils.hpp"
 #include <cmath>
 #include <algorithm>
 #include <utility>
@@ -115,8 +116,13 @@ void resizeBilinear(const ImageView8U& src, Image8U& dst, int new_width, int new
     }
 }
 
-void gaussianBlur7x7(const ImageView8U& src, Image8U& dst) {
+void gaussianBlur7x7(const ImageView8U& src, Image8U& dst, bool useSimd) {
     if (src.cols == 0 || src.rows == 0) return;
+#if ORB_SIMD
+    const bool vec = useSimd;   // read only by the vector blocks below
+#else
+    (void)useSimd;
+#endif
 
     const int cols = src.cols, rows = src.rows;
 
@@ -181,8 +187,22 @@ void gaussianBlur7x7(const ImageView8U& src, Image8U& dst) {
             t[x] = acc;
         };
         for (int x = 0; x < leftEnd; ++x) borderPixel(x);
-        // Interior: independent pixels, a plain loop the compiler vectorises.
-        for (int x = kRadius; x < cols - kRadius; ++x) {
+        // Interior, four pixels at a time: the same seven products summed in
+        // the same order as the scalar loop below, so the bytes are identical.
+        int x = kRadius;
+#if ORB_SIMD
+        if (vec) {
+            for (; x + 4 <= cols - kRadius; x += 4) {
+                const uint8_t* p = s + x - 3;
+                simd::f32x4 acc = simd::mul(simd::splat(kernel[0]), simd::load_u8x4_as_f32x4(p));
+                for (int k = 1; k < 7; ++k)
+                    acc = simd::add(simd::mul(simd::splat(kernel[k]), simd::load_u8x4_as_f32x4(p + k)), acc);
+                simd::store(t + x, acc);
+            }
+        }
+#endif
+        // Scalar interior (the whole row without SIMD, the <4 px tail with it).
+        for (; x < cols - kRadius; ++x) {
             const uint8_t* p = s + x - 3;
             float acc = kernel[0] * static_cast<float>(p[0]);
             acc = mulAdd(kernel[1], static_cast<float>(p[1]), acc);
@@ -204,7 +224,26 @@ void gaussianBlur7x7(const ImageView8U& src, Image8U& dst) {
         const float* r[7];
         for (int k = 0; k < 7; ++k) r[k] = temp.data() + static_cast<size_t>(reflect(y + k - kRadius, rows)) * cols;
         uint8_t* out = result.ptr(y);
-        for (int x = 0; x < cols; ++x) {
+        int x = 0;
+#if ORB_SIMD
+        if (vec) {
+            const simd::f32x4 k0 = simd::splat(kernel[0]), k1 = simd::splat(kernel[1]),
+                              k2 = simd::splat(kernel[2]), k3 = simd::splat(kernel[3]);
+            const simd::f32x4 magic = simd::splat(12582912.0f);
+            const simd::i32x4 magicInt = simd::splat_i32(12582912);
+            for (; x + 4 <= cols; x += 4) {
+                simd::f32x4 acc = simd::mul(k3, simd::load(r[3] + x));
+                acc = simd::add(simd::mul(k2, simd::add(simd::load(r[2] + x), simd::load(r[4] + x))), acc);
+                acc = simd::add(simd::mul(k1, simd::add(simd::load(r[1] + x), simd::load(r[5] + x))), acc);
+                acc = simd::add(simd::mul(k0, simd::add(simd::load(r[0] + x), simd::load(r[6] + x))), acc);
+                // roundToByte lane-wise: magic-number rounding, truncating
+                // convert, integer subtract, saturating narrow to 0..255.
+                simd::i32x4 r32 = simd::sub(simd::trunc_to_i32x4(simd::add(acc, magic)), magicInt);
+                simd::store_u8x4_saturated(out + x, r32);
+            }
+        }
+#endif
+        for (; x < cols; ++x) {
             float acc = kernel[3] * r[3][x];
             acc = mulAdd(kernel[2], static_cast<float>(r[2][x] + r[4][x]), acc);
             acc = mulAdd(kernel[1], static_cast<float>(r[1][x] + r[5][x]), acc);
