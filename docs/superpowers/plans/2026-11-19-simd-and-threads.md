@@ -108,7 +108,7 @@ git commit -m "build: ORB_ENABLE_SIMD option, -msimd128 for wasm32, arm64 and SI
 - Consumes: `ORB_SIMD` from Task 1.
 - Produces: `void gaussianBlur7x7(const ImageView8U& src, Image8U& dst, bool useSimd = orbSimdActive());` (the third parameter is new; `false` forces the scalar path even in a SIMD build). `simd_utils.hpp` namespace `simd`: `struct f32x4` with `load(const float*)`, `store(float*, f32x4)`, `splat(float)`, `mul`, `add`, `load_u8x4_as_f32x4(const uint8_t*)` (4 bytes zero-extended to floats), `trunc_to_i32x4(f32x4)` and `store_u8x4_saturated(uint8_t*, i32x4)` (clamp 0..255, 4 bytes); each implemented for SSE2, NEON and WASM under the Task 1 macros.
 
-- [ ] **Step 1: Write the failing tests** in `tests/test_image_utils.cpp`:
+- [x] **Step 1: Write the failing tests** in `tests/test_image_utils.cpp`:
 
 ```cpp
 TEST_CASE("gaussianBlur7x7: vector path equals the scalar path byte for byte") {
@@ -140,15 +140,15 @@ TEST_CASE("gaussianBlur7x7: vector path reads nothing past a tight row") {
 }
 ```
 
-- [ ] **Step 2: Run the suite to verify it fails** (3-argument call does not compile).
+- [x] **Step 2: Run the suite to verify it fails** (3-argument call does not compile).
 
-- [ ] **Step 3: Implement.** Add the parameter and branch on `ORB_SIMD && useSimd` in two places of `gaussianBlur7x7`: the row-pass interior (`x` from `kRadius` while `x + 4 <= cols - kRadius`: seven `load_u8x4_as_f32x4(p + k)`, `mul` tap 0 then `add(mul(tap k, v), acc)` for k = 1..6 in that order, `store`) and the column pass (`x` while `x + 4 <= cols`: `mul(k3, r3)`, then for pairs (2,4), (1,5), (0,6): `add(mul(kernel, add(r_a, r_b)), acc)`; round with `add(acc, splat(12582912.0f))`, `trunc_to_i32x4`, subtract 12582912 in integer lanes, `store_u8x4_saturated`). The scalar loops run on the tail. Border strips stay scalar.
+- [x] **Step 3: Implement.** Add the parameter and branch on `ORB_SIMD && useSimd` in two places of `gaussianBlur7x7`: the row-pass interior (`x` from `kRadius` while `x + 4 <= cols - kRadius`: seven `load_u8x4_as_f32x4(p + k)`, `mul` tap 0 then `add(mul(tap k, v), acc)` for k = 1..6 in that order, `store`) and the column pass (`x` while `x + 4 <= cols`: `mul(k3, r3)`, then for pairs (2,4), (1,5), (0,6): `add(mul(kernel, add(r_a, r_b)), acc)`; round with `add(acc, splat(12582912.0f))`, `trunc_to_i32x4`, subtract 12582912 in integer lanes, `store_u8x4_saturated`). The scalar loops run on the tail. Border strips stay scalar.
 
-- [ ] **Step 4: Run the suite** on the SIMD build, the SIMD-off build, the ASan build and the wasm build: all PASS, and the existing OpenCV blur fixtures (`test_opencv_ref.cpp`) still pass, which proves bit-identity with OpenCV, not only with the scalar path.
+- [x] **Step 4: Run the suite** on the SIMD build, the SIMD-off build, the ASan build and the wasm build: all PASS, and the existing OpenCV blur fixtures (`test_opencv_ref.cpp`) still pass, which proves bit-identity with OpenCV, not only with the scalar path.
 
-- [ ] **Step 5: Measure** `profile_orb` before/after, native and wasm32. Apply the 15% rule; the wasm32 blur must at least match the 47.1 ms of auto-vectorisation.
+- [x] **Step 5: Measure** `profile_orb` before/after, native and wasm32. Apply the 15% rule; the wasm32 blur must at least match the 47.1 ms of auto-vectorisation.
 
-- [ ] **Step 6: Commit** `perf(blur): SSE2/NEON/WASM vector path for the float row and column passes`, body with the table and `Refs #19`. Mark Task 2 done.
+- [x] **Step 6: Commit** `perf(blur): SSE2/NEON/WASM vector path for the float row and column passes`, body with the table and `Refs #19`. Mark Task 2 done.
 
 ---
 
