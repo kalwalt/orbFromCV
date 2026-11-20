@@ -81,4 +81,8 @@ void computeOrbDescriptors(const ImageView8U& imagePyramid, const std::vector<Re
                            const std::vector<float>& layerScale, std::vector<KeyPoint>& keypoints,
                            Image8U& descriptors, const std::vector<Point2i>& _pattern, int dsize, int wta_k);
 
+// True when the library was built with ORB_ENABLE_SIMD=ON and the compiler
+// targets SSE2, NEON or WASM SIMD128, i.e. the vector kernels are in use.
+bool orbSimdActive();
+
 #endif // ORB_CORE_HPP

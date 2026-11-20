@@ -10,9 +10,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        # x86-64 (SSE2), arm64 (NEON) and MSVC; each with the SIMD kernels on
+        # and off, since both paths must build and give the same bytes (#19).
+        os: [ubuntu-latest, ubuntu-24.04-arm, windows-latest]
+        simd: [ON, OFF]
 
     runs-on: ${{ matrix.os }}
+    name: build-and-test (${{ matrix.os }}, SIMD ${{ matrix.simd }})
 
     steps:
       - uses: actions/checkout@v4
@@ -21,7 +25,7 @@ jobs:
       # --config Debug only emits the per-config export file if the build was
       # configured for Debug (otherwise find_package sees no IMPORTED_LOCATION).
       - name: Configure
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DORB_ENABLE_SIMD=${{ matrix.simd }}
 
       - name: Build
         run: cmake --build build --config Debug
@@ -95,3 +99,13 @@ jobs:
 
       - name: Run orb_test on the sample image
         run: node build-wasm/orb_test.js pinball.jpg
+
+      # Same suite without -msimd128: the scalar paths must stay complete.
+      - name: Configure (SIMD off)
+        run: emcmake cmake -S . -B build-wasm-off -DCMAKE_BUILD_TYPE=Release -DORB_ENABLE_SIMD=OFF
+
+      - name: Build (SIMD off)
+        run: cmake --build build-wasm-off
+
+      - name: Test (SIMD off)
+        run: ctest --test-dir build-wasm-off --output-on-failure

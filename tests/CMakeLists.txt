@@ -13,7 +13,9 @@ target_link_libraries(orb_tests PRIVATE StandaloneORB::orb)
 # read the PGM files from here at run time; the generated header is included.
 target_compile_definitions(orb_tests PRIVATE
     ORB_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/opencv"
-    ORB_SOURCE_DIR="${PROJECT_SOURCE_DIR}")
+    ORB_SOURCE_DIR="${PROJECT_SOURCE_DIR}"
+    # What orbSimdActive() must report for this build (see test_orb_core.cpp).
+    ORB_TEST_EXPECT_SIMD=$<BOOL:${ORB_ENABLE_SIMD}>)
 
 add_test(NAME orb_tests COMMAND orb_tests)
 

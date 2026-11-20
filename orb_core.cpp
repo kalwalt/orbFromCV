@@ -1,5 +1,10 @@
 #include "orb_core.hpp"
+#include "simd_utils.hpp"
 #include <cmath>
+
+bool orbSimdActive() {
+    return ORB_SIMD != 0;
+}
 
 const float ORB_PI = 3.14159265358979323846f;
 
