@@ -3,6 +3,8 @@
 #include "fast_detector.hpp"
 #include "image_utils.hpp"
 #include "orb_pattern.hpp"
+#include "fixtures/opencv/opencv_ref.hpp"
+#include "pgm.hpp"
 #include "test_framework.hpp"
 #include <algorithm>
 #include <cmath>
@@ -632,7 +634,7 @@ bool sameOutput(const std::vector<KeyPoint>& ka, const Image8U& da,
     if (ka.size() != kb.size() || da.rows != db.rows || da.cols != db.cols) return false;
     for (size_t i = 0; i < ka.size(); ++i)
         if (ka[i].pt.x != kb[i].pt.x || ka[i].pt.y != kb[i].pt.y || ka[i].angle != kb[i].angle ||
-            ka[i].response != kb[i].response || ka[i].octave != kb[i].octave)
+            ka[i].response != kb[i].response || ka[i].octave != kb[i].octave || ka[i].size != kb[i].size)
             return false;
     for (int r = 0; r < da.rows; ++r)
         for (int c = 0; c < da.cols; ++c)
@@ -640,7 +642,52 @@ bool sameOutput(const std::vector<KeyPoint>& ka, const Image8U& da,
     return true;
 }
 
+// The 640x480 fixture scene of test_opencv_ref.cpp (tests/fixtures/opencv).
+Image8U fixtureScene() {
+    return readPGM(std::string(ORB_FIXTURE_DIR) + "/" + opencv_ref::SCENE_FILE);
+}
+
+// Uniform noise in [low, low + span), the LCG of test_fast_detector.cpp.
+Image8U noise(int w, int h, uint32_t seed, uint8_t low = 90, uint8_t span = 60) {
+    Image8U img(w, h);
+    for (auto& v : img.data) {
+        seed = seed * 1664525u + 1013904223u;
+        v = static_cast<uint8_t>(low + (seed >> 24) % span);
+    }
+    return img;
+}
+
 } // namespace
+
+TEST_CASE("detectAndCompute: 1 and N threads give identical keypoints and descriptors") {
+    // The fixture scene plus odd-sized noise; thread counts above the row count too.
+    Image8U scene = fixtureScene();
+    std::vector<Image8U> images = {scene, noise(97, 71, 3u), noise(33, 1, 4u), noise(9, 9, 5u), noise(640, 2, 6u)};
+    for (const Image8U& img : images) {
+        ORB single;
+        std::vector<KeyPoint> k1; Image8U d1;
+        single.detectAndCompute(img, k1, d1);
+        for (int n : {2, 3, 7, 16}) {
+            ORB multi;
+            CHECK_EQ(multi.setNumThreads(n), multi.numThreads());
+            std::vector<KeyPoint> kn; Image8U dn;
+            multi.detectAndCompute(img, kn, dn);
+            CHECK(sameOutput(k1, d1, kn, dn));
+        }
+    }
+}
+
+TEST_CASE("setNumThreads: clamps to 1 for n <= 0 and reports the effective count") {
+    ORB orb;
+    CHECK_EQ(orb.setNumThreads(0), 1);
+    CHECK_EQ(orb.setNumThreads(-3), 1);
+    CHECK_EQ(orb.numThreads(), 1);
+#if defined(__EMSCRIPTEN__) && !defined(__EMSCRIPTEN_PTHREADS__)
+    CHECK_EQ(orb.setNumThreads(4), 1);
+#else
+    CHECK_EQ(orb.setNumThreads(4), 4);
+#endif
+}
 
 TEST_CASE("ORB::detectAndCompute: a padded-stride view gives the Image8U result and leaves the buffer untouched") {
     const int W = 128, H = 96, STEP = 160;

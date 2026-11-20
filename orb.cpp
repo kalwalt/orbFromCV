@@ -2,6 +2,7 @@
 #include "fast_detector.hpp"
 #include "image_utils.hpp"
 #include "orb_pattern.hpp" // Contains bit_pattern_31_
+#include "thread_pool.hpp"
 #include <chrono>
 #include <cmath>
 #include <stdexcept>
@@ -107,6 +108,20 @@ ORB::ORB(int nfeatures, float scaleFactor, int nlevels, int edgeThreshold,
     if (fastThreshold <= 0) throw std::invalid_argument("ORB: fastThreshold must be > 0");
 }
 
+int ORB::setNumThreads(int n) {
+    n = std::max(1, n);
+#if defined(__EMSCRIPTEN__) && !defined(__EMSCRIPTEN_PTHREADS__)
+    n = 1;   // no std::thread without -pthread; see the wasm notes in README
+#endif
+    if (n == 1) {
+        pool_.reset();
+    } else if (!pool_ || pool_->workers() != n - 1) {
+        pool_ = std::make_shared<ThreadPool>(n - 1);
+    }
+    numThreads_ = n;
+    return numThreads_;
+}
+
 float ORB::getScale(int level) const {
     return std::pow(scaleFactor, static_cast<float>(level - firstLevel));
 }
@@ -146,7 +161,8 @@ void ORB::detectAndCompute(const ImageView8U& image, std::vector<KeyPoint>& keyp
             int scaled_width = static_cast<int>(std::round(image.cols * inv_scale));
             int scaled_height = static_cast<int>(std::round(image.rows * inv_scale));
 
-            resizeBilinear(levelView[level - 1], imagePyramid[level], scaled_width, scaled_height);
+            resizeBilinear(levelView[level - 1], imagePyramid[level], scaled_width, scaled_height,
+                           orbSimdActive(), pool_.get());
             levelView[level] = imagePyramid[level];
             layerInfo[level] = {0, 0, scaled_width, scaled_height};
         }
@@ -169,7 +185,7 @@ void ORB::detectAndCompute(const ImageView8U& image, std::vector<KeyPoint>& keyp
         std::vector<KeyPoint> filteredKeypoints;
         {
             ScopedAccumulator timer(&fastDetectionMs);
-            detectFAST(levelView[level], levelKeypoints, fastThreshold, true);
+            detectFAST(levelView[level], levelKeypoints, fastThreshold, true, orbSimdActive(), pool_.get());
 
             // Filter by image border. OpenCV pads every level with a reflected
             // border of max(edgeThreshold, ceil(halfPatchSize * sqrt(2)),
@@ -318,7 +334,7 @@ void ORB::detectAndCompute(const ImageView8U& image, std::vector<KeyPoint>& keyp
             // Level 0 is the caller's buffer, which is never written: its
             // blur goes to the owned imagePyramid[0], left empty until here.
             ScopedAccumulator timer(&blurMs);
-            gaussianBlur7x7(levelView[level], imagePyramid[level]);
+            gaussianBlur7x7(levelView[level], imagePyramid[level], orbSimdActive(), pool_.get());
         }
 
         {

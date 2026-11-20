@@ -21,6 +21,7 @@
 int main(int argc, char** argv) {
     std::string imagePath = argc > 1 ? argv[1] : "pinball.jpg";
     int repeats = argc > 2 ? std::atoi(argv[2]) : 10;
+    int threads = argc > 3 ? std::atoi(argv[3]) : 1;
 
     int width, height, channels;
     unsigned char* imgData = stbi_load(imagePath.c_str(), &width, &height, &channels, 1);
@@ -36,6 +37,8 @@ int main(int argc, char** argv) {
 
     // Same defaults as main.cpp / compare_orb.cpp, for consistency across tools.
     ORB orb(500, 1.2f, 8, 31, 0, 2, ORB::HARRIS_SCORE, 31, 20);
+    threads = orb.setNumThreads(threads);
+    std::cout << "Threads: " << threads << "\n";
 
     // Warm-up (discarded), then timed repeats, accumulating per-stage totals
     // by name so results don't depend on push_back order.

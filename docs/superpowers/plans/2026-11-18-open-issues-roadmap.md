@@ -236,9 +236,9 @@ Branch `kalwalt/feat/cmake-package-and-image-view`. Version set to `0.2.0`
 - [x] `tests/consumer/` external project; CI installs to a prefix and builds/runs it on Linux and Windows.
 - [x] `main.cpp` and `profile_orb` wrap the `stbi_load` buffer in a view.
 
-### Task 12: SIMD and multithreading (#19) — plan written
+### Task 12: SIMD and multithreading (#19) — done
 
-Prerequisites (Tasks 6, 9, 10, 11) merged. The plan is `docs/superpowers/plans/2026-11-19-simd-and-threads.md`: five PRs (`ORB_ENABLE_SIMD` + `-msimd128` + CI matrix, blur SIMD, resize SIMD, FAST SIMD, `std::thread` row bands with ordered merge), byte-for-byte scalar-vs-vector and 1-vs-N-thread tests, a `tsan` job. This task is done when that plan's Task 5 is merged.
+Prerequisites (Tasks 6, 9, 10, 11) merged. The plan is `docs/superpowers/plans/2026-11-19-simd-and-threads.md`: five PRs (`ORB_ENABLE_SIMD` + `-msimd128` + CI matrix, blur SIMD, resize SIMD, FAST SIMD, `std::thread` row bands with ordered merge), byte-for-byte scalar-vs-vector and 1-vs-N-thread tests, a `tsan` job. Executed as PRs #59 (option + CI), #60 (blur), #61 (resize), #62 (FAST) and the threads PR (plan Task 5, `Fixes #19`). wasm32 pyramid+FAST+blur went from 280 ms to about 90 ms single-threaded on pinball.jpg; a wasm pthreads build is a follow-up issue.
 
 ---
 

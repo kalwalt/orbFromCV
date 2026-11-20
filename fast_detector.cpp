@@ -1,5 +1,6 @@
 #include "fast_detector.hpp"
 #include "simd_utils.hpp"
+#include "thread_pool.hpp"
 #include <cmath>
 #include <algorithm>
 
@@ -56,13 +57,16 @@ inline float cornerScore(const ImageView8U& img, int x, int y, const int* pixel_
 }
 
 void detectFAST(const ImageView8U& img, std::vector<KeyPoint>& keypoints, int threshold,
-                bool nonmaxSuppression, bool useSimd) {
+                bool nonmaxSuppression, bool useSimd, ThreadPool* pool) {
     keypoints.clear();
 #if ORB_SIMD
     const bool vec = useSimd;   // read only by the vector block below
 #else
     (void)useSimd;
 #endif
+    // As OpenCV's FAST does; keeps the byte-wide vector path and the int
+    // scalar path on the same threshold.
+    threshold = std::max(0, std::min(threshold, 255));
     
     // We need a margin of 3 pixels to access the full circle
     const int margin = 3;
@@ -85,7 +89,7 @@ void detectFAST(const ImageView8U& img, std::vector<KeyPoint>& keypoints, int th
     // scalar loop reaches it after the pair-rule rejection below; the vector
     // block hands it the lanes its 16-wide segment test accepted, so the
     // response and the raw order are the scalar ones on both paths.
-    auto fullTest = [&](const uint8_t* row_ptr, int x, int y) {
+    auto fullTest = [&](std::vector<KeyPoint>& out, const uint8_t* row_ptr, int x, int y) {
         const int p = row_ptr[x];
         const int lower_threshold = p - threshold;
         const int upper_threshold = p + threshold;
@@ -117,92 +121,105 @@ void detectFAST(const ImageView8U& img, std::vector<KeyPoint>& keypoints, int th
             kp.pt.y = static_cast<float>(y);
             kp.response = cornerScore(img, x, y, offsets, threshold);
             kp.octave = 0;
-            raw_keypoints.push_back(kp);
+            out.push_back(kp);
             if (nonmaxSuppression) response_grid[static_cast<size_t>(y) * img.cols + x] = kp.response;
         }
     };
 
-    // Iterate over the image, skipping the borders
-    for (int y = margin; y < img.rows - margin; ++y) {
-        const uint8_t* row_ptr = img.ptr(y);
-        int x = margin;
+    // Rows [yBegin, yEnd), skipping the borders. Each band appends its raw
+    // corners to its own vector (merged in band order below) and writes only
+    // its own rows of response_grid, so bands share nothing.
+    std::vector<std::vector<KeyPoint>> perBand(static_cast<size_t>(pool ? pool->bands() : 1));
+    auto band = [&](int bandIndex, int yBegin, int yEnd) {
+        std::vector<KeyPoint>& out = perBand[static_cast<size_t>(bandIndex)];
+        for (int y = yBegin; y < yEnd; ++y) {
+            const uint8_t* row_ptr = img.ptr(y);
+            int x = margin;
 
-#if ORB_SIMD
-        if (vec) {
-            // OpenCV's FAST_t<16> scheme: 16 centre pixels per step. The
-            // segment test runs lane-wise on bytes (saturating v +- t, unsigned
-            // compares); only the lanes it accepts reach fullTest, in
-            // ascending order, so nothing about the output changes.
-            const uint8_t tByte = static_cast<uint8_t>(std::max(0, std::min(threshold, 255)));
-            const simd::u8x16 t = simd::splat_u8(tByte);
-            const simd::u8x16 one = simd::splat_u8(1), eight = simd::splat_u8(8);
-            const simd::u8x16 ones = simd::cmpgt(one, simd::splat_u8(0)); // all lanes set
-            for (; x + 16 <= img.cols - margin; x += 16) {
-                const uint8_t* c = row_ptr + x;
-                const simd::u8x16 v = simd::load(c);
-                // v - t and v + t saturated: a circle pixel is "brighter" when
-                // > hi and "darker" when < lo, exactly as the int compares.
-                const simd::u8x16 lo = simd::subs(v, t), hi = simd::adds(v, t);
+    #if ORB_SIMD
+            if (vec) {
+                // OpenCV's FAST_t<16> scheme: 16 centre pixels per step. The
+                // segment test runs lane-wise on bytes (saturating v +- t, unsigned
+                // compares); only the lanes it accepts reach fullTest, in
+                // ascending order, so nothing about the output changes.
+                const uint8_t tByte = static_cast<uint8_t>(threshold);
+                const simd::u8x16 t = simd::splat_u8(tByte);
+                const simd::u8x16 one = simd::splat_u8(1), eight = simd::splat_u8(8);
+                const simd::u8x16 ones = simd::cmpgt(one, simd::splat_u8(0)); // all lanes set
+                for (; x + 16 <= img.cols - margin; x += 16) {
+                    const uint8_t* c = row_ptr + x;
+                    const simd::u8x16 v = simd::load(c);
+                    // v - t and v + t saturated: a circle pixel is "brighter" when
+                    // > hi and "darker" when < lo, exactly as the int compares.
+                    const simd::u8x16 lo = simd::subs(v, t), hi = simd::adds(v, t);
 
-                // Coarse rejection by the pair rule: a 9-arc covers one pixel
-                // of every opposite pair (i, i + 8).
-                simd::u8x16 maybeBright = ones, maybeDark = ones;
-                for (int i = 0; i < 8; ++i) {
-                    const simd::u8x16 a = simd::load(c + offsets[i]);
-                    const simd::u8x16 b = simd::load(c + offsets[i + 8]);
-                    maybeBright = simd::and_(maybeBright, simd::or_(simd::cmpgt(a, hi), simd::cmpgt(b, hi)));
-                    maybeDark = simd::and_(maybeDark, simd::or_(simd::cmpgt(lo, a), simd::cmpgt(lo, b)));
+                    // Coarse rejection by the pair rule: a 9-arc covers one pixel
+                    // of every opposite pair (i, i + 8).
+                    simd::u8x16 maybeBright = ones, maybeDark = ones;
+                    for (int i = 0; i < 8; ++i) {
+                        const simd::u8x16 a = simd::load(c + offsets[i]);
+                        const simd::u8x16 b = simd::load(c + offsets[i + 8]);
+                        maybeBright = simd::and_(maybeBright, simd::or_(simd::cmpgt(a, hi), simd::cmpgt(b, hi)));
+                        maybeDark = simd::and_(maybeDark, simd::or_(simd::cmpgt(lo, a), simd::cmpgt(lo, b)));
+                    }
+                    if (!simd::any(simd::or_(maybeBright, maybeDark))) continue;
+
+                    // Segment test: run lengths of brighter / darker pixels around
+                    // the circle (25 steps so every wrapping arc of 9 is seen); a
+                    // lane whose counter reaches 9 is a candidate.
+                    simd::u8x16 countBright = simd::splat_u8(0), countDark = simd::splat_u8(0);
+                    simd::u8x16 candidate = simd::splat_u8(0);
+                    for (int k = 0; k < 25; ++k) {
+                        const simd::u8x16 px = simd::load(c + offsets[k & 15]);
+                        countBright = simd::and_(simd::adds(countBright, one), simd::cmpgt(px, hi));
+                        countDark = simd::and_(simd::adds(countDark, one), simd::cmpgt(lo, px));
+                        candidate = simd::or_(candidate,
+                                              simd::or_(simd::cmpgt(countBright, eight), simd::cmpgt(countDark, eight)));
+                    }
+                    int mask = simd::bitmask(candidate);
+                    for (int lane = 0; mask != 0; ++lane, mask >>= 1)
+                        if (mask & 1) fullTest(out, row_ptr, x + lane, y);
                 }
-                if (!simd::any(simd::or_(maybeBright, maybeDark))) continue;
+            }
+    #endif
 
-                // Segment test: run lengths of brighter / darker pixels around
-                // the circle (25 steps so every wrapping arc of 9 is seen); a
-                // lane whose counter reaches 9 is a candidate.
-                simd::u8x16 countBright = simd::splat_u8(0), countDark = simd::splat_u8(0);
-                simd::u8x16 candidate = simd::splat_u8(0);
-                for (int k = 0; k < 25; ++k) {
-                    const simd::u8x16 px = simd::load(c + offsets[k & 15]);
-                    countBright = simd::and_(simd::adds(countBright, one), simd::cmpgt(px, hi));
-                    countDark = simd::and_(simd::adds(countDark, one), simd::cmpgt(lo, px));
-                    candidate = simd::or_(candidate,
-                                          simd::or_(simd::cmpgt(countBright, eight), simd::cmpgt(countDark, eight)));
+            for (; x < img.cols - margin; ++x) {
+                int p = row_ptr[x];
+
+                int lower_threshold = p - threshold;
+                int upper_threshold = p + threshold;
+
+                // Early rejection, as OpenCV's FAST_t<16>: a 9-pixel arc covers at
+                // least one pixel of every pair of opposite circle pixels (i, i+8),
+                // so if any pair has neither pixel brighter (or neither darker)
+                // there is no bright (dark) arc. Checked pair by pair, cheapest
+                // first. (The previous "3 of the 4 compass pixels" test is the
+                // FAST-12 criterion and dropped about a third of FAST-9 corners, #20.)
+                bool maybe_bright = true, maybe_dark = true;
+                for (int i = 0; i < 8 && (maybe_bright || maybe_dark); ++i) {
+                    // order 0, 4, 2, 6, 1, 5, 3, 7: compass pairs first
+                    static const int pair_order[8] = {0, 4, 2, 6, 1, 5, 3, 7};
+                    const int a = row_ptr[x + offsets[pair_order[i]]];
+                    const int b = row_ptr[x + offsets[pair_order[i] + 8]];
+                    maybe_bright = maybe_bright && (a > upper_threshold || b > upper_threshold);
+                    maybe_dark = maybe_dark && (a < lower_threshold || b < lower_threshold);
                 }
-                int mask = simd::bitmask(candidate);
-                for (int lane = 0; mask != 0; ++lane, mask >>= 1)
-                    if (mask & 1) fullTest(row_ptr, x + lane, y);
+                if (!maybe_bright && !maybe_dark) {
+                    continue; // Reject early
+                }
+
+                fullTest(out, row_ptr, x, y);
             }
         }
-#endif
 
-        for (; x < img.cols - margin; ++x) {
-            int p = row_ptr[x];
+    };
+    if (pool) pool->parallelFor(margin, img.rows - margin, band);
+    else band(0, margin, img.rows - margin);
 
-            int lower_threshold = p - threshold;
-            int upper_threshold = p + threshold;
-
-            // Early rejection, as OpenCV's FAST_t<16>: a 9-pixel arc covers at
-            // least one pixel of every pair of opposite circle pixels (i, i+8),
-            // so if any pair has neither pixel brighter (or neither darker)
-            // there is no bright (dark) arc. Checked pair by pair, cheapest
-            // first. (The previous "3 of the 4 compass pixels" test is the
-            // FAST-12 criterion and dropped about a third of FAST-9 corners, #20.)
-            bool maybe_bright = true, maybe_dark = true;
-            for (int i = 0; i < 8 && (maybe_bright || maybe_dark); ++i) {
-                // order 0, 4, 2, 6, 1, 5, 3, 7: compass pairs first
-                static const int pair_order[8] = {0, 4, 2, 6, 1, 5, 3, 7};
-                const int a = row_ptr[x + offsets[pair_order[i]]];
-                const int b = row_ptr[x + offsets[pair_order[i] + 8]];
-                maybe_bright = maybe_bright && (a > upper_threshold || b > upper_threshold);
-                maybe_dark = maybe_dark && (a < lower_threshold || b < lower_threshold);
-            }
-            if (!maybe_bright && !maybe_dark) {
-                continue; // Reject early
-            }
-
-            fullTest(row_ptr, x, y);
-        }
-    }
-
+    size_t total = 0;
+    for (const auto& v : perBand) total += v.size();
+    raw_keypoints.reserve(total);
+    for (const auto& v : perBand) raw_keypoints.insert(raw_keypoints.end(), v.begin(), v.end());
     // Non-Maximal Suppression (NMS), as OpenCV's FAST_t: a corner survives only
     // if its response is strictly greater than that of every pixel in its 3x3
     // window, so two tied neighbours are both dropped (#24). Corners lie inside

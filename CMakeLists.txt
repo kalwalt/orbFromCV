@@ -70,6 +70,7 @@ set(LIB_SOURCES
     fast_detector.cpp
     image_utils.cpp
     orb.cpp
+    thread_pool.cpp
 )
 
 # Define the header files (useful to make them appear in IDEs)
@@ -80,6 +81,7 @@ set(HEADERS
     orb_pattern.hpp
     orb.hpp
     simd_utils.hpp
+    thread_pool.hpp
     stb_image.h
 )
 
@@ -89,6 +91,11 @@ add_library(orb_lib STATIC ${LIB_SOURCES} ${HEADERS})
 add_library(StandaloneORB::orb ALIAS orb_lib)
 set_target_properties(orb_lib PROPERTIES EXPORT_NAME orb OUTPUT_NAME orb)
 target_compile_features(orb_lib PUBLIC cxx_std_14)
+# ORB::setNumThreads runs std::threads (issue #19); PUBLIC so consumers of the
+# static library get -pthread / the platform thread library through the
+# package (StandaloneORBConfig.cmake.in does the find_dependency).
+find_package(Threads REQUIRED)
+target_link_libraries(orb_lib PUBLIC Threads::Threads)
 target_include_directories(orb_lib PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
     $<INSTALL_INTERFACE:include/StandaloneORB>)
@@ -134,7 +141,7 @@ if(ORB_INSTALL)
         LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
         RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
     # The public headers; stb_image.h is only used by the tools.
-    install(FILES orb.hpp orb_core.hpp fast_detector.hpp image_utils.hpp orb_pattern.hpp
+    install(FILES orb.hpp orb_core.hpp fast_detector.hpp image_utils.hpp orb_pattern.hpp thread_pool.hpp
         DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/StandaloneORB)
     install(EXPORT StandaloneORBTargets
         NAMESPACE StandaloneORB::

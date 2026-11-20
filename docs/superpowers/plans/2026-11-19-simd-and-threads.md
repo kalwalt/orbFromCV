@@ -295,7 +295,7 @@ public:
 
   In `orb.hpp`: `int setNumThreads(int n);` (stores `max(1, n)`, creates or drops the pool, returns the effective count: 1 on Emscripten without `__EMSCRIPTEN_PTHREADS__`) and `int numThreads() const;`. `ORB` holds `std::shared_ptr<ThreadPool>`, so copies share the pool and stay copyable; default is 1 thread and no pool. The kernels gain a trailing `ThreadPool* pool = nullptr`: `resizeBilinear(…, bool useSimd, ThreadPool* pool)`, `gaussianBlur7x7(…, bool useSimd, ThreadPool* pool)`, `detectFAST(…, bool useSimd, ThreadPool* pool)`.
 
-- [ ] **Step 1: Write the failing tests** in `tests/test_thread_pool.cpp`:
+- [x] **Step 1: Write the failing tests** in `tests/test_thread_pool.cpp`:
 
 ```cpp
 TEST_CASE("ThreadPool::parallelFor: covers the range once, in band order, with empty bands skipped") {
@@ -362,29 +362,29 @@ TEST_CASE("setNumThreads: clamps to 1 for n <= 0 and reports the effective count
 }
 ```
 
-- [ ] **Step 2: Run the suite to verify it fails** (`thread_pool.hpp` missing; `setNumThreads` undeclared).
+- [x] **Step 2: Run the suite to verify it fails** (`thread_pool.hpp` missing; `setNumThreads` undeclared).
 
-- [ ] **Step 3: Implement `ThreadPool`** in `thread_pool.cpp`: `workers` threads waiting on a condition variable for a job `{body, begin, end, bandCount}`, a counter of finished bands, an `std::exception_ptr` slot set by the first failing band, rethrown by `parallelFor` after every band returned. The caller thread runs band 0. Band bounds: `begin + (end - begin) * i / bands` to `begin + (end - begin) * (i + 1) / bands`, `bands = workers + 1`. `CMakeLists.txt`: `find_package(Threads REQUIRED)` and `target_link_libraries(orb_lib PUBLIC Threads::Threads)`; `cmake/StandaloneORBConfig.cmake.in`: `include(CMakeFindDependencyMacro)` and `find_dependency(Threads)` before the targets file. `tests/CMakeLists.txt` adds `test_thread_pool.cpp`.
+- [x] **Step 3: Implement `ThreadPool`** in `thread_pool.cpp`: `workers` threads waiting on a condition variable for a job `{body, begin, end, bandCount}`, a counter of finished bands, an `std::exception_ptr` slot set by the first failing band, rethrown by `parallelFor` after every band returned. The caller thread runs band 0. Band bounds: `begin + (end - begin) * i / bands` to `begin + (end - begin) * (i + 1) / bands`, `bands = workers + 1`. `CMakeLists.txt`: `find_package(Threads REQUIRED)` and `target_link_libraries(orb_lib PUBLIC Threads::Threads)`; `cmake/StandaloneORBConfig.cmake.in`: `include(CMakeFindDependencyMacro)` and `find_dependency(Threads)` before the targets file. `tests/CMakeLists.txt` adds `test_thread_pool.cpp`.
 
-- [ ] **Step 4: Run `test_thread_pool` cases: PASS.** Commit `feat(core): fixed ThreadPool with ordered row bands`.
+- [x] **Step 4: Run `test_thread_pool` cases: PASS.** Commit `feat(core): fixed ThreadPool with ordered row bands`.
 
-- [ ] **Step 5: Parallelise the kernels** with the `pool` parameter, `nullptr` meaning the existing sequential loop:
+- [x] **Step 5: Parallelise the kernels** with the `pool` parameter, `nullptr` meaning the existing sequential loop:
   - `gaussianBlur7x7`: `parallelFor(0, rows, …)` over the row pass (writes its own rows of `temp`), then a second `parallelFor(0, rows, …)` over the column pass (reads up to 3 rows outside the band, all of `temp` is complete by then).
   - `resizeBilinear`: `parallelFor(0, new_height, …)`; each band owns its own horizontal-pass cache from Task 3 (a band's first row recomputes both source rows).
   - `detectFAST`: `parallelFor(margin, rows - margin, …)`, each band pushes its raw keypoints into `std::vector<std::vector<KeyPoint>> perBand[bandIndex]` and writes its own rows of `response_grid`; after the call the bands are concatenated in index order into `raw_keypoints`; NMS runs as today on the merged vector (its 3x3 window reads `response_grid`, which is complete).
   - `orb.cpp`: `setNumThreads` / `numThreads`; `detectAndCompute` passes `pool.get()` to the three kernels. Harris, ICAngles and descriptors stay sequential (together under 5% of the time).
 
-- [ ] **Step 6: Run the suite** natively (SIMD on and off), under ASan, and in the wasm build (where `setNumThreads(4)` returns 1 and the pool is never created): PASS.
+- [x] **Step 6: Run the suite** natively (SIMD on and off), under ASan, and in the wasm build (where `setNumThreads(4)` returns 1 and the pool is never created): PASS.
 
-- [ ] **Step 7: Run the suite under ThreadSanitizer** locally: `cmake -S . -B build-tsan -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_COMPILER=clang++ "-DCMAKE_CXX_FLAGS=-fsanitize=thread" "-DCMAKE_EXE_LINKER_FLAGS=-fsanitize=thread"` then `ctest --test-dir build-tsan --output-on-failure`: no report.
+- [x] **Step 7: Run the suite under ThreadSanitizer** locally: `cmake -S . -B build-tsan -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_COMPILER=clang++ "-DCMAKE_CXX_FLAGS=-fsanitize=thread" "-DCMAKE_EXE_LINKER_FLAGS=-fsanitize=thread"` then `ctest --test-dir build-tsan --output-on-failure`: no report.
 
-- [ ] **Step 8: Package check.** Install to a prefix and build/run `tests/consumer` as CI does (`find_dependency(Threads)` must make `StandaloneORB::orb` link); on WSL also build the consumer via `add_subdirectory`.
+- [x] **Step 8: Package check.** Install to a prefix and build/run `tests/consumer` as CI does (`find_dependency(Threads)` must make `StandaloneORB::orb` link); on WSL also build the consumer via `add_subdirectory`.
 
-- [ ] **Step 9: CI.** Add job `tsan` (ubuntu, clang, the flags of step 7, `ctest`). `profile_orb` takes `[image] [repeats] [threads]` and calls `setNumThreads`.
+- [x] **Step 9: CI.** Add job `tsan` (ubuntu, clang, the flags of step 7, `ctest`). `profile_orb` takes `[image] [repeats] [threads]` and calls `setNumThreads`.
 
-- [ ] **Step 10: Measure** `profile_orb pinball.jpg 10 1` vs `… 4` and `… 8` on native, with the per-stage table in the PR. wasm32 stays at 1 thread; a wasm pthreads build (`-pthread`, `PTHREAD_POOL_SIZE`, node flags) is a follow-up issue to open from this PR, not part of it.
+- [x] **Step 10: Measure** `profile_orb pinball.jpg 10 1` vs `… 4` and `… 8` on native, with the per-stage table in the PR. wasm32 stays at 1 thread; a wasm pthreads build (`-pthread`, `PTHREAD_POOL_SIZE`, node flags) is a follow-up issue to open from this PR, not part of it.
 
-- [ ] **Step 11: Docs and commit.** README: `setNumThreads`, the thread-count argument of `profile_orb`, the determinism guarantee; AGENTS.md Tests section: the `tsan` job and "kernels take `useSimd` and `pool`, tests compare paths in one binary". Commit `feat(orb): opt-in multithreading over row bands with identical output`, `Fixes #19`. Mark Task 5 done and Task 12 of the 2026-11-18 roadmap done.
+- [x] **Step 11: Docs and commit.** README: `setNumThreads`, the thread-count argument of `profile_orb`, the determinism guarantee; AGENTS.md Tests section: the `tsan` job and "kernels take `useSimd` and `pool`, tests compare paths in one binary". Commit `feat(orb): opt-in multithreading over row bands with identical output`, `Fixes #19`. Mark Task 5 done and Task 12 of the 2026-11-18 roadmap done.
 
 ---
 

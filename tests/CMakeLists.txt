@@ -4,6 +4,7 @@ add_executable(orb_tests
     test_fast_detector.cpp
     test_orb_core.cpp
     test_orb.cpp
+    test_thread_pool.cpp
     test_opencv_ref.cpp
 )
 
