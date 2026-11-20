@@ -213,7 +213,7 @@ TEST_CASE("resizeBilinear: vector path reads nothing past a tight row") {
 - Consumes: `ORB_SIMD`.
 - Produces: `void detectFAST(const ImageView8U& img, std::vector<KeyPoint>& keypoints, int threshold, bool nonmaxSuppression = true, bool useSimd = orbSimdActive());`. `simd_utils.hpp` gains `struct u8x16` with `load(const uint8_t*)`, `splat(uint8_t)`, `adds` and `subs` (saturating), `cmpgt` (unsigned, all-ones lanes), `and_`, `or_`, `andnot`, `any(u8x16)` (true if any lane is non-zero) and `bitmask(u8x16)` (bit i set when lane i's top bit is set; SSE2 `_mm_movemask_epi8`, WASM `wasm_i8x16_bitmask`, NEON via the shift-and-narrow idiom).
 
-- [ ] **Step 1: Write the failing tests:**
+- [x] **Step 1: Write the failing tests:**
 
 ```cpp
 TEST_CASE("detectFAST: vector path equals the scalar path, keypoints in the same order") {
@@ -246,20 +246,20 @@ TEST_CASE("detectFAST: vector path reads nothing past a tight row") {
 }
 ```
 
-- [ ] **Step 2: Run the suite to verify it fails** (5-argument call).
+- [x] **Step 2: Run the suite to verify it fails** (5-argument call).
 
-- [ ] **Step 3: Implement** the OpenCV `FAST_t<16>` scheme in the row loop under `ORB_SIMD && useSimd`, for `x` while `x + 16 <= cols - margin`:
+- [x] **Step 3: Implement** the OpenCV `FAST_t<16>` scheme in the row loop under `ORB_SIMD && useSimd`, for `x` while `x + 16 <= cols - margin`:
   1. `v = load(row + x)`, `lo = subs(v, splat(t))`, `hi = adds(v, splat(t))`.
   2. Coarse rejection with the pair rule the scalar code already uses (a 9-arc covers one pixel of every opposite pair i, i+8): for each of the 8 pairs, `bright = or_(cmpgt(px(i), hi), cmpgt(px(i + 8), hi))`, `dark = or_(cmpgt(lo, px(i)), cmpgt(lo, px(i + 8)))`, `maybeBright = and_(maybeBright, bright)`, `maybeDark = and_(maybeDark, dark)`; then `if (!any(or_(maybeBright, maybeDark))) continue;`.
   3. For surviving blocks, count consecutive brighter and darker pixels around the circle (k from 0 to 24, lanes with `cmpgt(px(k), hi)` / `cmpgt(lo, px(k))`), saturating byte counters via `adds` and `and_` with the lane mask, reset to 0 by `andnot`; a lane is a candidate when its counter reaches 9.
   4. `bitmask` of candidate lanes; for each set bit in ascending order run the existing scalar full test and `cornerScore` on that pixel (so the response and the raw order are the scalar ones).
   The scalar loop handles the remaining `x` up to `cols - margin`. NMS is unchanged.
 
-- [ ] **Step 4: Run the suite** on SIMD, SIMD-off, ASan and wasm builds: PASS, including `detectFAST without NMS matches a brute-force FAST-9 oracle`.
+- [x] **Step 4: Run the suite** on SIMD, SIMD-off, ASan and wasm builds: PASS, including `detectFAST without NMS matches a brute-force FAST-9 oracle`.
 
-- [ ] **Step 5: Measure**; FAST is the largest stage on every target and the compiler vectorises none of it, so this is the PR where the 15% rule should not bite.
+- [x] **Step 5: Measure**; FAST is the largest stage on every target and the compiler vectorises none of it, so this is the PR where the 15% rule should not bite.
 
-- [ ] **Step 6: Commit** `perf(fast): 16-pixel SIMD segment test before the scalar full test`, `Refs #19`. Mark Task 4 done.
+- [x] **Step 6: Commit** `perf(fast): 16-pixel SIMD segment test before the scalar full test`, `Refs #19`. Mark Task 4 done.
 
 ---
 

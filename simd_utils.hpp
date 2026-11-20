@@ -63,6 +63,26 @@ namespace simd {
 #if ORB_SIMD_SSE2
 struct f32x4 { __m128 v; };
 struct i32x4 { __m128i v; };
+struct u8x16 { __m128i v; };
+
+inline u8x16 load(const uint8_t* p) { return {_mm_loadu_si128(reinterpret_cast<const __m128i*>(p))}; }
+inline u8x16 splat_u8(uint8_t x) { return {_mm_set1_epi8(static_cast<char>(x))}; }
+inline u8x16 adds(u8x16 a, u8x16 b) { return {_mm_adds_epu8(a.v, b.v)}; }   // saturating
+inline u8x16 subs(u8x16 a, u8x16 b) { return {_mm_subs_epu8(a.v, b.v)}; }   // saturating
+// Unsigned a > b, all-ones lanes. SSE2 compares signed bytes only, so both
+// sides are biased by 0x80 first (OpenCV's FAST does the same).
+inline u8x16 cmpgt(u8x16 a, u8x16 b) {
+    const __m128i bias = _mm_set1_epi8(static_cast<char>(0x80));
+    return {_mm_cmpgt_epi8(_mm_xor_si128(a.v, bias), _mm_xor_si128(b.v, bias))};
+}
+inline u8x16 and_(u8x16 a, u8x16 b) { return {_mm_and_si128(a.v, b.v)}; }
+inline u8x16 or_(u8x16 a, u8x16 b) { return {_mm_or_si128(a.v, b.v)}; }
+// True when any lane is non-zero.
+inline bool any(u8x16 a) {
+    return _mm_movemask_epi8(_mm_cmpeq_epi8(a.v, _mm_setzero_si128())) != 0xFFFF;
+}
+// Bit i set when lane i's top bit is set.
+inline int bitmask(u8x16 a) { return _mm_movemask_epi8(a.v); }
 
 inline f32x4 load(const float* p) { return {_mm_loadu_ps(p)}; }
 inline void store(float* p, f32x4 a) { _mm_storeu_ps(p, a.v); }
@@ -110,6 +130,28 @@ inline void store_u8x4_saturated(uint8_t* p, i32x4 a) {
 #elif ORB_SIMD_NEON
 struct f32x4 { float32x4_t v; };
 struct i32x4 { int32x4_t v; };
+struct u8x16 { uint8x16_t v; };
+
+inline u8x16 load(const uint8_t* p) { return {vld1q_u8(p)}; }
+inline u8x16 splat_u8(uint8_t x) { return {vdupq_n_u8(x)}; }
+inline u8x16 adds(u8x16 a, u8x16 b) { return {vqaddq_u8(a.v, b.v)}; }
+inline u8x16 subs(u8x16 a, u8x16 b) { return {vqsubq_u8(a.v, b.v)}; }
+inline u8x16 cmpgt(u8x16 a, u8x16 b) { return {vcgtq_u8(a.v, b.v)}; }
+inline u8x16 and_(u8x16 a, u8x16 b) { return {vandq_u8(a.v, b.v)}; }
+inline u8x16 or_(u8x16 a, u8x16 b) { return {vorrq_u8(a.v, b.v)}; }
+inline bool any(u8x16 a) {
+    const uint64x2_t w = vreinterpretq_u64_u8(a.v);
+    return (vgetq_lane_u64(w, 0) | vgetq_lane_u64(w, 1)) != 0;
+}
+// movemask_epi8 idiom: fold the top bits pairwise with shift-and-accumulate
+// through 16-, 32- and 64-bit lanes, then read one byte per half.
+inline int bitmask(u8x16 a) {
+    const uint16x8_t h = vreinterpretq_u16_u8(vshrq_n_u8(a.v, 7));
+    const uint32x4_t p16 = vreinterpretq_u32_u16(vsraq_n_u16(h, h, 7));
+    const uint64x2_t p32 = vreinterpretq_u64_u32(vsraq_n_u32(p16, p16, 14));
+    const uint8x16_t p64 = vreinterpretq_u8_u64(vsraq_n_u64(p32, p32, 28));
+    return vgetq_lane_u8(p64, 0) | (static_cast<int>(vgetq_lane_u8(p64, 8)) << 8);
+}
 
 inline f32x4 load(const float* p) { return {vld1q_f32(p)}; }
 inline void store(float* p, f32x4 a) { vst1q_f32(p, a.v); }
@@ -144,6 +186,17 @@ inline void store_u8x4_saturated(uint8_t* p, i32x4 a) {
 #elif ORB_SIMD_WASM
 struct f32x4 { v128_t v; };
 struct i32x4 { v128_t v; };
+struct u8x16 { v128_t v; };
+
+inline u8x16 load(const uint8_t* p) { return {wasm_v128_load(p)}; }
+inline u8x16 splat_u8(uint8_t x) { return {wasm_u8x16_splat(x)}; }
+inline u8x16 adds(u8x16 a, u8x16 b) { return {wasm_u8x16_add_sat(a.v, b.v)}; }
+inline u8x16 subs(u8x16 a, u8x16 b) { return {wasm_u8x16_sub_sat(a.v, b.v)}; }
+inline u8x16 cmpgt(u8x16 a, u8x16 b) { return {wasm_u8x16_gt(a.v, b.v)}; }
+inline u8x16 and_(u8x16 a, u8x16 b) { return {wasm_v128_and(a.v, b.v)}; }
+inline u8x16 or_(u8x16 a, u8x16 b) { return {wasm_v128_or(a.v, b.v)}; }
+inline bool any(u8x16 a) { return wasm_v128_any_true(a.v); }
+inline int bitmask(u8x16 a) { return wasm_i8x16_bitmask(a.v); }
 
 inline f32x4 load(const float* p) { return {wasm_v128_load(p)}; }
 inline void store(float* p, f32x4 a) { wasm_v128_store(p, a.v); }

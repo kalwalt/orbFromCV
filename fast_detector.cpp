@@ -1,4 +1,5 @@
 #include "fast_detector.hpp"
+#include "simd_utils.hpp"
 #include <cmath>
 #include <algorithm>
 
@@ -54,8 +55,14 @@ inline float cornerScore(const ImageView8U& img, int x, int y, const int* pixel_
     return static_cast<float>(-b0 - 1);
 }
 
-void detectFAST(const ImageView8U& img, std::vector<KeyPoint>& keypoints, int threshold, bool nonmaxSuppression) {
+void detectFAST(const ImageView8U& img, std::vector<KeyPoint>& keypoints, int threshold,
+                bool nonmaxSuppression, bool useSimd) {
     keypoints.clear();
+#if ORB_SIMD
+    const bool vec = useSimd;   // read only by the vector block below
+#else
+    (void)useSimd;
+#endif
     
     // We need a margin of 3 pixels to access the full circle
     const int margin = 3;
@@ -74,14 +81,102 @@ void detectFAST(const ImageView8U& img, std::vector<KeyPoint>& keypoints, int th
     std::vector<float> response_grid;
     if (nonmaxSuppression) response_grid.assign(static_cast<size_t>(img.rows) * img.cols, 0.0f);
 
+    // Full FAST-9 test of one pixel, plus the score when it is a corner. The
+    // scalar loop reaches it after the pair-rule rejection below; the vector
+    // block hands it the lanes its 16-wide segment test accepted, so the
+    // response and the raw order are the scalar ones on both paths.
+    auto fullTest = [&](const uint8_t* row_ptr, int x, int y) {
+        const int p = row_ptr[x];
+        const int lower_threshold = p - threshold;
+        const int upper_threshold = p + threshold;
+
+        // We duplicate the circle array to simulate circularity without modulo operations
+        int circle[32];
+        for (int i = 0; i < 16; ++i) {
+            circle[i] = row_ptr[x + offsets[i]];
+            circle[i + 16] = circle[i];
+        }
+
+        bool is_corner = false;
+        // Check for 9 contiguous pixels
+        for (int i = 0; i < 16; ++i) {
+            int c_bright = 0, c_dark = 0;
+            for (int j = 0; j < 9; ++j) {
+                if (circle[i + j] > upper_threshold) c_bright++;
+                if (circle[i + j] < lower_threshold) c_dark++;
+            }
+            if (c_bright == 9 || c_dark == 9) {
+                is_corner = true;
+                break;
+            }
+        }
+
+        if (is_corner) {
+            KeyPoint kp;
+            kp.pt.x = static_cast<float>(x);
+            kp.pt.y = static_cast<float>(y);
+            kp.response = cornerScore(img, x, y, offsets, threshold);
+            kp.octave = 0;
+            raw_keypoints.push_back(kp);
+            if (nonmaxSuppression) response_grid[static_cast<size_t>(y) * img.cols + x] = kp.response;
+        }
+    };
+
     // Iterate over the image, skipping the borders
-    // This row-by-row structure is ideal for future WASM SIMD (v128) optimizations
     for (int y = margin; y < img.rows - margin; ++y) {
         const uint8_t* row_ptr = img.ptr(y);
-        
-        for (int x = margin; x < img.cols - margin; ++x) {
+        int x = margin;
+
+#if ORB_SIMD
+        if (vec) {
+            // OpenCV's FAST_t<16> scheme: 16 centre pixels per step. The
+            // segment test runs lane-wise on bytes (saturating v +- t, unsigned
+            // compares); only the lanes it accepts reach fullTest, in
+            // ascending order, so nothing about the output changes.
+            const uint8_t tByte = static_cast<uint8_t>(std::max(0, std::min(threshold, 255)));
+            const simd::u8x16 t = simd::splat_u8(tByte);
+            const simd::u8x16 one = simd::splat_u8(1), eight = simd::splat_u8(8);
+            const simd::u8x16 ones = simd::cmpgt(one, simd::splat_u8(0)); // all lanes set
+            for (; x + 16 <= img.cols - margin; x += 16) {
+                const uint8_t* c = row_ptr + x;
+                const simd::u8x16 v = simd::load(c);
+                // v - t and v + t saturated: a circle pixel is "brighter" when
+                // > hi and "darker" when < lo, exactly as the int compares.
+                const simd::u8x16 lo = simd::subs(v, t), hi = simd::adds(v, t);
+
+                // Coarse rejection by the pair rule: a 9-arc covers one pixel
+                // of every opposite pair (i, i + 8).
+                simd::u8x16 maybeBright = ones, maybeDark = ones;
+                for (int i = 0; i < 8; ++i) {
+                    const simd::u8x16 a = simd::load(c + offsets[i]);
+                    const simd::u8x16 b = simd::load(c + offsets[i + 8]);
+                    maybeBright = simd::and_(maybeBright, simd::or_(simd::cmpgt(a, hi), simd::cmpgt(b, hi)));
+                    maybeDark = simd::and_(maybeDark, simd::or_(simd::cmpgt(lo, a), simd::cmpgt(lo, b)));
+                }
+                if (!simd::any(simd::or_(maybeBright, maybeDark))) continue;
+
+                // Segment test: run lengths of brighter / darker pixels around
+                // the circle (25 steps so every wrapping arc of 9 is seen); a
+                // lane whose counter reaches 9 is a candidate.
+                simd::u8x16 countBright = simd::splat_u8(0), countDark = simd::splat_u8(0);
+                simd::u8x16 candidate = simd::splat_u8(0);
+                for (int k = 0; k < 25; ++k) {
+                    const simd::u8x16 px = simd::load(c + offsets[k & 15]);
+                    countBright = simd::and_(simd::adds(countBright, one), simd::cmpgt(px, hi));
+                    countDark = simd::and_(simd::adds(countDark, one), simd::cmpgt(lo, px));
+                    candidate = simd::or_(candidate,
+                                          simd::or_(simd::cmpgt(countBright, eight), simd::cmpgt(countDark, eight)));
+                }
+                int mask = simd::bitmask(candidate);
+                for (int lane = 0; mask != 0; ++lane, mask >>= 1)
+                    if (mask & 1) fullTest(row_ptr, x + lane, y);
+            }
+        }
+#endif
+
+        for (; x < img.cols - margin; ++x) {
             int p = row_ptr[x];
-            
+
             int lower_threshold = p - threshold;
             int upper_threshold = p + threshold;
 
@@ -104,39 +199,7 @@ void detectFAST(const ImageView8U& img, std::vector<KeyPoint>& keypoints, int th
                 continue; // Reject early
             }
 
-            // Full test: Check all 16 pixels
-            // We duplicate the circle array to simulate circularity without modulo operations
-            int circle[32];
-            for (int i = 0; i < 16; ++i) {
-                circle[i] = row_ptr[x + offsets[i]];
-                circle[i + 16] = circle[i];
-            }
-
-            bool is_corner = false;
-            
-            // Check for 9 contiguous pixels
-            for (int i = 0; i < 16; ++i) {
-                int c_bright = 0, c_dark = 0;
-                for (int j = 0; j < 9; ++j) {
-                    if (circle[i + j] > upper_threshold) c_bright++;
-                    if (circle[i + j] < lower_threshold) c_dark++;
-                }
-                
-                if (c_bright == 9 || c_dark == 9) {
-                    is_corner = true;
-                    break;
-                }
-            }
-
-            if (is_corner) {
-                KeyPoint kp;
-                kp.pt.x = static_cast<float>(x);
-                kp.pt.y = static_cast<float>(y);
-                kp.response = cornerScore(img, x, y, offsets, threshold);
-                kp.octave = 0;
-                raw_keypoints.push_back(kp);
-                if (nonmaxSuppression) response_grid[static_cast<size_t>(y) * img.cols + x] = kp.response;
-            }
+            fullTest(row_ptr, x, y);
         }
     }
 

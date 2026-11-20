@@ -8,6 +8,10 @@
 
 // Fast feature detection implementation (FAST-9)
 // nonmaxSuppression: if true, applies non-maximal suppression to cluster corners
-void detectFAST(const ImageView8U& img, std::vector<KeyPoint>& keypoints, int threshold, bool nonmaxSuppression = true);
+// useSimd: run the 16-pixel SSE2/NEON/WASM SIMD128 segment test when the
+// library was built with one (orbSimdActive()); false forces the scalar path.
+// Both return the same keypoints, responses and order.
+void detectFAST(const ImageView8U& img, std::vector<KeyPoint>& keypoints, int threshold,
+                bool nonmaxSuppression = true, bool useSimd = orbSimdActive());
 
 #endif // FAST_DETECTOR_HPP
