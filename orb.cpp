@@ -2,6 +2,7 @@
 #include "fast_detector.hpp"
 #include "image_utils.hpp"
 #include "orb_pattern.hpp" // Contains bit_pattern_31_
+#include "thread_pool.hpp"
 #include <chrono>
 #include <cmath>
 #include <stdexcept>
@@ -105,6 +106,20 @@ ORB::ORB(int nfeatures, float scaleFactor, int nlevels, int edgeThreshold,
     if (scoreType != HARRIS_SCORE && scoreType != FAST_SCORE) throw std::invalid_argument("ORB: unknown scoreType");
     if (patchSize <= 0) throw std::invalid_argument("ORB: patchSize must be > 0");
     if (fastThreshold <= 0) throw std::invalid_argument("ORB: fastThreshold must be > 0");
+}
+
+int ORB::setNumThreads(int n) {
+    n = std::max(1, n);
+#if defined(__EMSCRIPTEN__) && !defined(__EMSCRIPTEN_PTHREADS__)
+    n = 1;   // no std::thread without -pthread; see the wasm notes in README
+#endif
+    if (n == 1) {
+        pool_.reset();
+    } else if (!pool_ || pool_->workers() != n - 1) {
+        pool_ = std::make_shared<ThreadPool>(n - 1);
+    }
+    numThreads_ = n;
+    return numThreads_;
 }
 
 float ORB::getScale(int level) const {

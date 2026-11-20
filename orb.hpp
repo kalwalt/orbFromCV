@@ -5,8 +5,11 @@
 #define ORB_HPP
 
 #include "orb_core.hpp"
+#include <memory>
 #include <string>
 #include <vector>
+
+class ThreadPool;
 
 // Elapsed time (in milliseconds) for one named stage of detectAndCompute.
 // Populated only when a non-null vector is passed in; purely additive
@@ -52,6 +55,14 @@ public:
     void detectAndCompute(const ImageView8U& image, std::vector<KeyPoint>& keypoints, Image8U& descriptors,
                           std::vector<StageTiming>* stageTimings = nullptr);
 
+    // Number of threads detectAndCompute may use for the pyramid resize, the
+    // FAST detection and the blur (issue #19); default 1. n <= 0 counts as 1.
+    // Returns the effective count: on a wasm32 build without pthreads it is
+    // always 1. Output is identical for every thread count: the kernels split
+    // rows into bands and merge them in order. Copies of an ORB share its pool.
+    int setNumThreads(int n);
+    int numThreads() const { return numThreads_; }
+
 private:
     int nfeatures;
     float scaleFactor;
@@ -62,6 +73,9 @@ private:
     ScoreType scoreType;
     int patchSize;
     int fastThreshold;
+
+    int numThreads_ = 1;
+    std::shared_ptr<ThreadPool> pool_;   // numThreads_ - 1 workers, null for 1 thread
 
     // Helper to compute scale for a specific pyramid level
     float getScale(int level) const;

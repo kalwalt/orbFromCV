@@ -1,5 +1,10 @@
 @PACKAGE_INIT@
 
+# orb_lib links Threads::Threads PUBLIC (ORB::setNumThreads), so the imported
+# target needs it resolved in the consumer's project.
+include(CMakeFindDependencyMacro)
+find_dependency(Threads)
+
 # find_package(StandaloneORB) -> imported target StandaloneORB::orb
 # (static library, headers under <prefix>/include/StandaloneORB).
 include("${CMAKE_CURRENT_LIST_DIR}/StandaloneORBTargets.cmake")
